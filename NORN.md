@@ -73,7 +73,8 @@ lists the full downstream delta.
 | `norn-v2.0.1-1` | `6ac6817e799a55e8c4e43ef26784088c45d9e3d8` | Compatibility series C1 to C5, S1 (`median([])`), Norn CI, this file |
 | `norn-v2.0.1-2` | `1e6c6bd2ec36df15cc31680bda513dcb4cce6d5c` | C6 (`schema-resolvers`, typed `SchemaCompileError`), native pure-tree CI check, regex-backend difference tests plus the pure-regex CI job (review fixes on -1) |
 | `norn-v2.0.1-3` | `526980cc0c8a6f8eb2f59f46f1eee763740fdf53` | Semantic series S2 `strict-errors` (#2), S3 `deterministic-maps` (#3), S4 `metering` (#4), all default off, with CI covering them on and off and on wasm32-unknown-unknown (T3-ZEN-1, Norn-cloud/norn-platform#2768) |
-| `norn-v2.0.1-4` | tag of the merge commit of Norn-cloud/zen#5 | Fixes from the gpt-6-sol review of -1..-3: strict evaluation skips the table index; transform loops are metered; `flatten`/`merge`/deep builtins are charged by the data they traverse (bounded walk); sub-decision errors stay in the source chain; CI builds the zen-engine Norn profile for wasm32 |
+| `norn-v2.0.1-4` | `0b5aeaacff901ada6e6ef102eaa109520ded233d` | Fixes from the gpt-6-sol review of -1..-3: strict evaluation skips the table index; transform loops are metered; `flatten`/`merge`/deep builtins are charged by the data they traverse (bounded walk); sub-decision errors stay in the source chain; CI builds the zen-engine Norn profile for wasm32 |
+| `norn-v2.0.1-5` | head of Norn-cloud/zen#6 (rebase-merged) | Measuring `flatten`/`merge`/`Flatten` costs is bounded by the remaining budget (outer length first, early stop, clamp); `Meter::scan_steps` diagnostic (gpt-6-sol round-2 review of -4) |
 
 ## Feature matrix (`zen-engine`)
 
@@ -136,7 +137,7 @@ tracing, precompilation or the target. Constants live in `zen_expression::meter:
 | --- | --- |
 | Every executed VM opcode | 1 |
 | `CallFunction` / `CallMethod` | + shallow size of the arguments (string bytes, array/object length, else 1) |
-| `flatten`, `merge`, `Flatten` opcode | + outer length + shallow size of every direct child (`cost::nested_size`) instead of the shallow size (-4) |
+| `flatten`, `merge`, `Flatten` opcode | + outer length + shallow size of every direct child (`cost::nested_size_capped`) instead of the shallow size (-4). The outer length is counted first, and the child scan stops once the total exceeds the remaining budget; the result is clamped to `remaining + 1` (-5) |
 | `matches`, `extract` | + 64 (regex compilation) on top of the argument sizes |
 | `fuzzyMatch` | + deep size(subject) x size(pattern) |
 | `mergeDeep`, `Join` | + recursive size (`cost::deep_size_capped`); the walk stops once it exceeds the meter's remaining units, so measuring is itself bounded (-4) |
@@ -148,6 +149,11 @@ tracing, precompilation or the target. Constants live in `zen_expression::meter:
 
 Determinism rules:
 - Charges are computed before an opcode runs, so exhaustion happens before the work.
+- Measuring a charge is itself bounded by the remaining budget: `nested_size_capped`
+  and `deep_size_capped` stop once they exceed it, and oversized results are clamped
+  to `remaining + 1`. `Meter::scan_steps()` reports how many values the measurements
+  visited. A 1M-element `flatten`/`merge` input against a budget of 100 fails at
+  `used: 102` after 0 child scan steps (-5).
 - A metered decision-table evaluation does not use the table index. Index pruning
   skips cells, and whether it applies depends on tracing and `compile()`. Without the
   index, every row is evaluated in order.
