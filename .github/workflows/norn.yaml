@@ -48,8 +48,22 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: norn-pure
-      - name: native unit tests without js/http
+      - name: native unit tests without js/http/schema-resolvers
         run: cargo test -p zen-engine --no-default-features --lib --locked
+      - name: expression integration tests with the pure regex backend (regex-lite)
+        run: cargo test -p zen-expression --no-default-features --tests --locked
+      - name: assert reqwest / tokio / rquickjs are absent from the pure native tree
+        run: |
+          set -euo pipefail
+          # Positive control: the default native tree must contain all three.
+          default_tree="$(cargo tree -e normal -p zen-engine --locked)"
+          for crate in reqwest tokio rquickjs; do
+            grep -qE "^[│├└ ─]*${crate} v" <<<"$default_tree" || { echo "::error::positive control: ${crate} missing from default native tree"; exit 1; }
+          done
+          if cargo tree -e normal -p zen-engine --no-default-features --locked | grep -E '[ ─](reqwest|tokio|rquickjs) v'; then
+            echo "::error::reqwest, tokio or rquickjs present in the --no-default-features native dependency tree"
+            exit 1
+          fi
       - name: build for wasm32-unknown-unknown (no libclang required)
         run: cargo build -p zen-engine --no-default-features --target wasm32-unknown-unknown --release --locked
       - name: assert tokio / rquickjs are absent from the pure wasm tree
