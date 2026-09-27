@@ -48,10 +48,31 @@ Consumers pin a `norn-v2.0.1-N` **tag** (or its commit), never the moving branch
 | S3 | Feature `deterministic-maps` (default **off**, on `zen-types`; forwarded by `zen-expression` and `zen-engine`): above the 32-key small-map threshold `VariableMap` uses an insertion-ordered `indexmap::IndexMap` (removal is order-preserving `shift_remove`) instead of an ahash `HashMap`. Iteration order is insertion order at every size, so `keys`, `values`, serialization and every other walk are independent of hash seeds. The engine's `$nodes` object is built in graph node order. | Review F1: eight equivalent 40-key inputs produced eight `keys` orders. (norn-v2.0.1-3) |
 | S4 | Feature `metering` (default **off**; on `zen-expression`, forwarded by `zen-engine`): a shared `Meter` (limit + counter) charged by every executed VM opcode (so every closure iteration of `map`/`filter`/`flatMap`/...), by data-proportional builtins and opcodes, and by zen-engine graph node visits and decision-table rows. Running out fails with the typed `BudgetExhausted { limit, used }`: `VMError::BudgetExhausted` in an `Isolate`, `EvaluationError::BudgetExhausted` from `Decision::evaluate_metered`. The meter is sticky, and the graph evaluator checks it after every node, so an exhaustion swallowed inside a node (for example a non-strict table cell) still aborts the evaluation. See "Metering cost model". | Review F3: poll/depth/reset counts do not bound work. (norn-v2.0.1-3) |
 
-Planned follow-ups, each tracked as its own issue and not included here: opt-in
-strict evaluation errors (no silent fallback on table/switch errors),
-deterministic exposed object/map ordering, banning or pinning ambient time and
-randomness builtins, and deterministic fuel/metering hooks.
+The semantic patches S2 to S4 are **off by default**. The Norn profile enables them
+explicitly, for example
+`zen-engine = { ..., default-features = false, features = ["strict-errors", "deterministic-maps", "metering"] }`.
+Banning or pinning ambient time and randomness builtins (`rand`, `now`, default
+timezone) is **not** a fork patch. Per D32 it belongs to Norn's own checker/admission
+(`norn-expr` / `norn-decisions`).
+
+Known gaps, outside this series:
+- Diagnostic type-union strings in `functions/defs.rs` are built from std `HashSet`,
+  so their order varies. They are diagnostics, not decision output.
+- Trace maps (`HashMap<node id, trace>`) serialize in hash order. They are
+  informational only.
+- `GraphWalker::ITER_MAX` (1000 switch resets) still ends a walk silently. Metering
+  bounds the work that leads up to it.
+
+## Releases (tags)
+
+Every tag is immutable and sits on `norn/v2.0.1`. `git log zen-engine-v2.0.1..<tag>`
+lists the full downstream delta.
+
+| Tag | Commit | Adds |
+| --- | --- | --- |
+| `norn-v2.0.1-1` | `6ac6817e799a55e8c4e43ef26784088c45d9e3d8` | Compatibility series C1 to C5, S1 (`median([])`), Norn CI, this file |
+| `norn-v2.0.1-2` | `1e6c6bd2ec36df15cc31680bda513dcb4cce6d5c` | C6 (`schema-resolvers`, typed `SchemaCompileError`), native pure-tree CI check, regex-backend difference tests plus the pure-regex CI job (review fixes on -1) |
+| `norn-v2.0.1-3` | tag of the merge commit of Norn-cloud/zen#4 | Semantic series S2 `strict-errors` (#2), S3 `deterministic-maps` (#3), S4 `metering` (#4), all default off, with CI covering them on and off and on wasm32-unknown-unknown (T3-ZEN-1, Norn-cloud/norn-platform#2768) |
 
 ## Feature matrix (`zen-engine`)
 
