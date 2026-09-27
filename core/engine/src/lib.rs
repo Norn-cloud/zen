@@ -131,6 +131,7 @@ pub mod loader;
 pub mod model;
 pub mod nodes;
 pub mod policy;
+mod time;
 pub mod workspace;
 
 pub const ENGINE_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -143,6 +144,6 @@ pub use decision_graph::{
 pub use engine::{
     DecisionEngine, EvaluationOptions, EvaluationSerializedOptions, EvaluationTraceKind,
 };
-pub use error::{CompileFailure, ContentKindError, EvaluationError};
+pub use error::{CompileFailure, ContentKindError, EvaluationError, UnsupportedNodeError};
 pub use workspace::Workspace;
 pub use zen_expression::Variable;

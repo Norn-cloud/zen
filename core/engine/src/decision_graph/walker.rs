@@ -1,3 +1,4 @@
+use crate::time::Instant;
 use ahash::HashMap;
 use fixedbitset::FixedBitSet;
 use petgraph::data::DataMap;
@@ -8,7 +9,6 @@ use petgraph::{Incoming, Outgoing};
 use std::ops::Deref;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use std::time::Instant;
 
 use crate::config::ZEN_CONFIG;
 use crate::model::{

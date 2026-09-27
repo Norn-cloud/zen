@@ -2,11 +2,16 @@ use crate::loader::{DynamicLoader, NoopLoader};
 use crate::nodes::custom::{DynamicCustomNode, NoopCustomNode};
 use crate::nodes::decision_table::index::TableIndex;
 use crate::nodes::function::http_handler::DynamicHttpHandler;
+#[cfg(feature = "js")]
 use crate::nodes::function::v2::function::{Function, FunctionConfig};
+#[cfg(feature = "js")]
 use crate::nodes::function::v2::module::console::ConsoleListener;
+#[cfg(feature = "js")]
 use crate::nodes::function::v2::module::http::listener::HttpListener;
+#[cfg(feature = "js")]
 use crate::nodes::function::v2::module::zen::ZenListener;
 use crate::nodes::validator_cache::ValidatorCache;
+#[cfg(feature = "js")]
 use anyhow::Context;
 use std::cell::OnceCell;
 use std::sync::Arc;
@@ -15,12 +20,14 @@ use zen_expression::OpcodeCache;
 /// This is created on every graph evaluation
 #[derive(Debug, Clone)]
 pub struct NodeHandlerExtensions {
+    #[cfg(feature = "js")]
     pub(crate) function_runtime: Arc<tokio::sync::OnceCell<Function>>,
     pub(crate) validator_cache: Arc<OnceCell<ValidatorCache>>,
     pub(crate) loader: DynamicLoader,
     pub(crate) custom_node: DynamicCustomNode,
     pub(crate) http_handler: DynamicHttpHandler,
     pub(crate) compiled_cache: Option<Arc<OpcodeCache>>,
+    #[cfg_attr(not(feature = "js"), allow(dead_code))]
     pub(crate) stripped_functions: Option<Arc<ahash::HashMap<Arc<str>, Arc<str>>>>,
     pub(crate) dt_indexes: Option<Arc<ahash::HashMap<Arc<str>, TableIndex>>>,
 }
@@ -28,6 +35,7 @@ pub struct NodeHandlerExtensions {
 impl Default for NodeHandlerExtensions {
     fn default() -> Self {
         Self {
+            #[cfg(feature = "js")]
             function_runtime: Default::default(),
             validator_cache: Default::default(),
 
@@ -42,6 +50,7 @@ impl Default for NodeHandlerExtensions {
 }
 
 impl NodeHandlerExtensions {
+    #[cfg(feature = "js")]
     pub async fn function_runtime(&self) -> anyhow::Result<&Function> {
         self.function_runtime
             .get_or_try_init(|| {

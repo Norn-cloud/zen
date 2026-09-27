@@ -1,5 +1,6 @@
 use crate::nodes::definition::{NodeDataType, TraceDataType};
 use crate::nodes::extensions::NodeHandlerExtensions;
+#[cfg(feature = "js")]
 use crate::nodes::function::v2::function::Function;
 use crate::nodes::result::{NodeResponse, NodeResult};
 use crate::nodes::variable_json::{Guards, VariableNode};
@@ -105,6 +106,7 @@ where
         }
     }
 
+    #[cfg(feature = "js")]
     pub(crate) async fn function_runtime(&self) -> Result<&Function, NodeError> {
         self.extensions.function_runtime().await.node_context(self)
     }

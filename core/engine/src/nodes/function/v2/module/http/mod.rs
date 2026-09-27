@@ -32,17 +32,21 @@ async fn execute_http<'js>(
         return backend_result;
     }
 
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(all(feature = "http", not(target_family = "wasm")))]
     {
         let backend = crate::nodes::function::v2::module::http::backend::native::NativeHttpBackend;
         return backend.execute_http(ctx, method, url, request).await;
     }
 
-    #[cfg(target_family = "wasm")]
+    #[cfg(not(all(feature = "http", not(target_family = "wasm"))))]
     {
         Err(rquickjs::Error::new_from_js(
             "http",
-            "HTTP not available in WASM environment without callback handler",
+            if cfg!(target_family = "wasm") {
+                "HTTP not available in WASM environment without callback handler"
+            } else {
+                "HTTP not available without callback handler (zen-engine built without the `http` feature)"
+            },
         ))
     }
 }

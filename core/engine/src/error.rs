@@ -16,6 +16,18 @@ pub struct ContentKindError {
     pub got: &'static str,
 }
 
+/// Norn: returned (as the `source` of [`EvaluationError::NodeError`]) when a graph
+/// contains a node kind whose runtime was compiled out, e.g. a function node when the
+/// `js` feature is disabled. Downcast `source` to detect it.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[error(
+    "{node_kind} is not supported in this build (enable the `{feature}` feature of zen-engine)"
+)]
+pub struct UnsupportedNodeError {
+    pub node_kind: &'static str,
+    pub feature: &'static str,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CompileFailure {
