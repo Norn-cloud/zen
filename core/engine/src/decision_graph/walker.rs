@@ -101,9 +101,14 @@ impl GraphWalker {
     }
 
     pub fn get_all_node_data(&self) -> Variable {
-        let node_values = self
-            .node_data
-            .iter()
+        #[allow(unused_mut)]
+        let mut entries: Vec<_> = self.node_data.iter().collect();
+        // Norn `deterministic-maps`: `$nodes` keys in graph node order, not hash order.
+        #[cfg(feature = "deterministic-maps")]
+        entries.sort_unstable_by_key(|(nid, _)| **nid);
+
+        let node_values = entries
+            .into_iter()
             .filter_map(|(_, nd)| {
                 let value = nd.nodes_view.clone().unwrap_or_else(|| nd.data.clone());
                 Some((nd.name.clone(), value))

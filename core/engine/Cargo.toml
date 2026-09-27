@@ -96,4 +96,6 @@ bindgen = ["js", "rquickjs/bindgen"]
 # Norn semantic patches (default off; see NORN.md). Decision-table cell and switch-condition
 # failures abort evaluation with `StrictEvaluationError` instead of being a non-match.
 strict-errors = []
+# Insertion-ordered VariableMap at every size (object/keys/values order independent of hash seeds).
+deterministic-maps = ["zen-expression/deterministic-maps", "zen-types/deterministic-maps"]
 arbitrary_precision = ["serde_json/arbitrary_precision", "zen-expression/arbitrary_precision", "zen-types/arbitrary_precision", "zen-tmpl/arbitrary_precision"]

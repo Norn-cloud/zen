@@ -17,7 +17,11 @@ rust_decimal = { workspace = true, features = ["maths-nopanic"] }
 rust_decimal_macros = { workspace = true }
 thiserror = { workspace = true }
 nohash-hasher = { workspace = true }
+indexmap = { version = "2", optional = true }
 
 [features]
 default = []
 arbitrary_precision = ["serde_json/arbitrary_precision"]
+# Norn semantic patch (default off; see NORN.md): insertion-ordered VariableMap above
+# the small-map threshold, so iteration order never depends on a hash seed.
+deterministic-maps = ["dep:indexmap"]
