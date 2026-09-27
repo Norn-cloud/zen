@@ -14,7 +14,7 @@ use crate::config::ZEN_CONFIG;
 use crate::model::{
     DecisionEdge, DecisionNode, DecisionNodeKind, SwitchStatement, SwitchStatementHitPolicy,
 };
-use crate::DecisionGraphTrace;
+use crate::{DecisionGraphTrace, StrictErrorSite, StrictEvaluationError};
 use zen_expression::variable::{ToVariable, Variable};
 use zen_expression::Isolate;
 
@@ -32,6 +32,9 @@ pub(crate) struct GraphWalker {
     ordered: FixedBitSet,
     to_visit: Vec<NodeIndex>,
     visited_switch_nodes: Vec<NodeIndex>,
+    /// Norn `strict-errors`: a failed switch condition stops the walk; the graph
+    /// evaluator takes it with [`GraphWalker::take_error`] and aborts.
+    error: Option<(NodeIndex, StrictEvaluationError)>,
 
     nodes_in_context: bool,
 }
@@ -60,6 +63,7 @@ impl GraphWalker {
             to_visit: Vec::new(),
             node_data: Default::default(),
             visited_switch_nodes: Default::default(),
+            error: None,
             iter: 0,
 
             nodes_in_context: ZEN_CONFIG.nodes_in_context.load(Ordering::Relaxed),
@@ -72,6 +76,10 @@ impl GraphWalker {
         self.initialize_input_nodes(g);
 
         self.iter += 1;
+    }
+
+    pub fn take_error(&mut self) -> Option<(NodeIndex, StrictEvaluationError)> {
+        self.error.take()
     }
 
     pub fn get_node_data(&self, node_id: NodeIndex) -> Option<Variable> {
@@ -173,20 +181,22 @@ impl GraphWalker {
                         isolate.set_local(Variable::nodes_key(), nodes);
                     }
 
-                    let mut statement_iter = content.statements.iter();
-                    let valid_statements: Vec<SwitchStatementTraceRow> = match content.hit_policy {
-                        SwitchStatementHitPolicy::First => statement_iter
-                            .find(|&s| switch_statement_evaluate(&mut isolate, &s))
-                            .into_iter()
-                            .cloned()
-                            .map(SwitchStatementTraceRow::from)
-                            .collect(),
-                        SwitchStatementHitPolicy::Collect => statement_iter
-                            .filter(|&s| switch_statement_evaluate(&mut isolate, &s))
-                            .cloned()
-                            .map(SwitchStatementTraceRow::from)
-                            .collect(),
-                    };
+                    let mut valid_statements: Vec<SwitchStatementTraceRow> = Vec::new();
+                    for statement in content.statements.iter() {
+                        match switch_statement_evaluate(&mut isolate, statement) {
+                            Ok(false) => continue,
+                            Ok(true) => {
+                                valid_statements.push(statement.clone().into());
+                                if content.hit_policy == SwitchStatementHitPolicy::First {
+                                    break;
+                                }
+                            }
+                            Err(err) => {
+                                self.error = Some((nid, err));
+                                return None;
+                            }
+                        }
+                    }
 
                     if let Some(on_trace) = &mut on_trace {
                         let output = input_trace.depth_clone(1);
@@ -258,14 +268,33 @@ impl GraphWalker {
     }
 }
 
-fn switch_statement_evaluate(isolate: &mut Isolate, switch_statement: &SwitchStatement) -> bool {
+/// A condition that fails to evaluate or is not a boolean is false upstream; with the
+/// Norn `strict-errors` feature it is a [`StrictEvaluationError`].
+fn switch_statement_evaluate(
+    isolate: &mut Isolate,
+    switch_statement: &SwitchStatement,
+) -> Result<bool, StrictEvaluationError> {
     if switch_statement.condition.is_empty() {
-        return true;
+        return Ok(true);
     }
 
-    isolate
-        .run_standard(switch_statement.condition.deref())
-        .map_or(false, |v| v.as_bool().unwrap_or(false))
+    let condition = switch_statement.condition.deref();
+    let error = |message: String| {
+        StrictEvaluationError::new(
+            StrictErrorSite::SwitchCondition,
+            &switch_statement.id,
+            condition,
+            message,
+        )
+    };
+    let result = isolate
+        .run_standard(condition)
+        .map_err(|err| error(err.to_string()))
+        .and_then(|v| {
+            v.as_bool()
+                .ok_or_else(|| error(format!("expected a boolean, got {}", v.type_name())))
+        });
+    StrictEvaluationError::or_fallback(result, false)
 }
 
 fn remove_edge_recursive(g: &mut StableDiDecisionGraph, edge_id: EdgeIndex) {

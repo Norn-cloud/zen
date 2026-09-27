@@ -93,4 +93,7 @@ schema-resolvers = ["dep:zen-schema-resolvers"]
 regex-deprecated = ["zen-expression/regex-deprecated", "zen-tmpl/regex-deprecated"]
 regex-lite = ["zen-expression/regex-lite", "zen-tmpl/regex-lite"]
 bindgen = ["js", "rquickjs/bindgen"]
+# Norn semantic patches (default off; see NORN.md). Decision-table cell and switch-condition
+# failures abort evaluation with `StrictEvaluationError` instead of being a non-match.
+strict-errors = []
 arbitrary_precision = ["serde_json/arbitrary_precision", "zen-expression/arbitrary_precision", "zen-types/arbitrary_precision", "zen-tmpl/arbitrary_precision"]
