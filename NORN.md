@@ -37,6 +37,7 @@ Consumers pin a `norn-v2.0.1-N` **tag** (or its commit), never the moving branch
 | C3 | `zen-engine`: graph, walker and policy timing use `crate::time::Instant`, which is `web_time::Instant` on `wasm32-unknown-unknown` and `std::time::Instant` everywhere else. | `std::time::Instant::now()` panics on wasm32-unknown-unknown. |
 | C4 | Default-feature propagation: `zen-engine` and `zen-tmpl` depend on `zen-expression` with `default-features = false` and forward `regex-deprecated` (default) / `regex-lite` explicitly. `zen-expression` now builds with neither regex feature by falling back to `regex-lite`, which is now a non-optional dependency. Precedence is unchanged when features are set: `regex-lite` wins, then `regex-deprecated` selects `regex`. | Before this, zen-tmpl silently re-enabled `regex-deprecated`, and `zen-expression` with defaults off did not compile. |
 | C5 | `zen-engine`: the tokio/criterion dev-dependencies are now native-only. | Keeps `cargo tree --target wasm32-unknown-unknown` free of tokio. The multi-thread test runtime cannot run on wasm anyway. |
+| C6 | `zen-engine`: jsonschema's default HTTP/file `$ref` resolvers (reqwest, tokio, rustls) are gated behind the new `schema-resolvers` feature (default on). The feature enables the native-only helper crate `core/schema-resolvers` (`zen-schema-resolvers`), whose only job is to depend on jsonschema with default features; cargo feature unification does the rest, so wasm targets keep upstream's `default-features = false`. Without it an external `$ref` fails schema compilation with the typed `zen_engine::SchemaCompileError { unresolved_reference: true, .. }`, delivered as the `source` of `EvaluationError::NodeError`. Default builds keep the jsonschema message text. | Before this the native pure tree still contained jsonschema → reqwest → tokio, and a schema `$ref` could fetch remotely. (norn-v2.0.1-2) |
 
 ### Semantic patches
 
@@ -55,6 +56,7 @@ randomness builtins, and deterministic fuel/metering hooks.
 | --- | --- | --- |
 | `js` | on | QuickJS function nodes (`rquickjs`, `tokio` OnceCell, TypeScript stripping via `swc_ts_fast_strip`) |
 | `http` | on | Native HTTP backend for function nodes (`reqwest`, `reqsign`, `sha2`, `http`, `async-trait`). Implies `js`. Non-wasm only. |
+| `schema-resolvers` | on | jsonschema's HTTP + file `$ref` retrieval (`reqwest`, `tokio`, `rustls`). Non-wasm only. |
 | `regex-deprecated` | on | `regex` backend for zen-expression / zen-tmpl (upstream default) |
 | `regex-lite` | off | `regex-lite` backend. Takes precedence when enabled. |
 | `bindgen` | off | `rquickjs/bindgen`. Implies `js` and needs libclang. |
@@ -64,6 +66,25 @@ The Norn pure profile is `zen-engine = { ..., default-features = false }`. Its
 regex backend is `regex-lite`, either by fallback or by setting `regex-lite`
 explicitly. The regex backend choice is part of the Norn language profile.
 Choose it deliberately and pin it at the consumer.
+
+### Open profile decision: regex backend (Norn must pin; not decided here)
+
+`regex` and `regex-lite` accept different languages and give different answers on
+non-ASCII input. `core/expression/tests/regex_backends.rs` pins both columns:
+
+| Construct | `regex` (upstream default) | `regex-lite` (pure fallback) |
+| --- | --- | --- |
+| `\d`, `\s`, `\w` | Unicode classes (`\w` matches `é`, `\d` matches `٣`, `\s` matches NBSP) | ASCII only |
+| `\b`, `\B` | Unicode word boundary | ASCII word boundary |
+| `\p{..}`, `\P{..}` | Unicode properties | Do not compile: `matches()` / `extract()` return an error |
+| `(?i)` | Simple Unicode case folding (`é` ~ `É`) | ASCII case folding only |
+| `.`, literals, `[[:alpha:]]`, anchors, alternation, lazy quantifiers | Same | Same |
+| Worst case | Linear time | `O(m * n)`, no DFA/literal optimizations |
+
+Rules written against one backend can silently change result under the other. The
+Norn side must record which backend its decision profile uses (and therefore which
+zen-engine features the kernel enables), and treat a switch as a semantic change.
+CI runs the expression integration tests under both backends.
 
 Cargo unifies features across the whole dependency graph. Any crate in the
 consumer's graph that enables `zen-engine/default`, `js` or `http` brings these
@@ -81,12 +102,15 @@ budgets or metering. Use host CPU telemetry and deterministic fuel instead.
 ## CI (`.github/workflows/norn.yaml`, pinned toolchain)
 
 1. Upstream test suite, native, default features (upstream's binding exclusions).
-2. Pure profile: native `--lib` tests with `--no-default-features`, then
+2. Pure profile: native `--lib` tests with `--no-default-features`, zen-expression
+   integration tests with `--no-default-features` (regex-lite backend), then
    `cargo build -p zen-engine --no-default-features --target wasm32-unknown-unknown --release`
    (no libclang needed).
-3. `cargo tree -e features --target wasm32-unknown-unknown -p zen-engine --no-default-features`
-   must not mention `tokio` or `rquickjs`. A positive control checks that the default
-   tree does, so the negative check cannot pass vacuously.
+3. `cargo tree -e normal -p zen-engine --no-default-features` (native host) must not
+   contain `reqwest`, `tokio` or `rquickjs`, and
+   `cargo tree -e features --target wasm32-unknown-unknown -p zen-engine --no-default-features`
+   must not mention `tokio` or `rquickjs`. Positive controls check that the default
+   trees do, so the negative checks cannot pass vacuously.
 
 ## Rebase / update policy
 

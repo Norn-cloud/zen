@@ -6042,6 +6042,7 @@ dependencies = [
  "typed-arena",
  "web-time",
  "zen-expression",
+ "zen-schema-resolvers",
  "zen-tmpl",
  "zen-types",
  "zip",
@@ -6144,6 +6145,13 @@ dependencies = [
  "zen-engine",
  "zen-expression",
  "zen-tmpl",
+]
+
+[[package]]
+name = "zen-schema-resolvers"
+version = "2.0.1"
+dependencies = [
+ "jsonschema",
 ]
 
 [[package]]

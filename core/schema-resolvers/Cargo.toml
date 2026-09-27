@@ -1,0 +1,15 @@
+[package]
+name = "zen-schema-resolvers"
+description = "Norn fork: enables jsonschema's default HTTP/file $ref resolvers for zen-engine (native only)"
+license = "MIT"
+version = "2.0.1"
+edition = "2021"
+repository = "https://github.com/Norn-cloud/zen.git"
+
+# Norn: this crate exists only so zen-engine's `schema-resolvers` feature can turn on
+# jsonschema's default features (resolve-http, resolve-file, TLS) for native targets
+# only. Cargo features are not target-specific and a crate cannot depend on jsonschema
+# twice under different names, so the feature enables this native-only dependency and
+# cargo's feature unification does the rest. See NORN.md (C6).
+[dependencies]
+jsonschema = { version = "0.49" }
