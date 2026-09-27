@@ -45,6 +45,14 @@ impl TransformAttributesExecution for TransformAttributes {
                     .as_array()
                     .node_context_message(&ctx, "Expected an array")?;
                 let input_array = input_array_ref.borrow();
+                // Norn `metering`: pay for the whole loop before running it, and stop as
+                // soon as the shared meter is exhausted (a node may swallow the VM error).
+                #[cfg(feature = "metering")]
+                if let Some(meter) = &ctx.extensions.meter {
+                    let units = (input_array.len() as u64)
+                        .saturating_mul(zen_expression::meter::cost::TRANSFORM_ITEM);
+                    meter.charge(units).node_context(&ctx)?;
+                }
                 ctx.trace(|t| {
                     *t = Variable::from_array(Vec::with_capacity(input_array.len()));
                 });
@@ -53,6 +61,12 @@ impl TransformAttributesExecution for TransformAttributes {
                 for (index, input) in input_array.iter().enumerate() {
                     let has_more = index < input_array.len() - 1;
                     let mut response = evaluate(input.clone(), has_more).await?;
+                    #[cfg(feature = "metering")]
+                    if let Some(exhausted) =
+                        ctx.extensions.meter.as_ref().and_then(|m| m.exhausted())
+                    {
+                        return ctx.error(exhausted);
+                    }
                     if let Some(td) = response.trace_data {
                         ctx.trace(|var| {
                             if let Variable::Array(arr) = var {

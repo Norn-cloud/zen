@@ -103,6 +103,9 @@ pub mod cost {
     pub const NODE_VISIT: u64 = 1;
     /// One zen-engine decision-table row considered.
     pub const TABLE_ROW: u64 = 1;
+    /// One element of a zen-engine transform-attributes loop, charged up front for the
+    /// whole input array.
+    pub const TRANSFORM_ITEM: u64 = 1;
 
     /// Shallow size of a value, used by data-proportional charges.
     pub fn size(value: &Variable) -> u64 {
