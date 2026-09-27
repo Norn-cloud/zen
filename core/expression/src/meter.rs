@@ -52,6 +52,11 @@ impl Meter {
         self.0.limit
     }
 
+    /// Units still available before the limit.
+    pub fn remaining(&self) -> u64 {
+        self.0.limit.saturating_sub(self.used())
+    }
+
     /// Units charged so far (not counting a failing charge).
     pub fn used(&self) -> u64 {
         self.0.used.load(Ordering::Relaxed)
@@ -117,18 +122,57 @@ pub mod cost {
         }
     }
 
-    /// Recursive size, for builtins whose work is proportional to nested data.
-    pub fn deep_size(value: &Variable) -> u64 {
+    /// A container's length plus the shallow size of each direct child: the data that
+    /// one-level builtins (`flatten`, `merge`, the flatten opcode) traverse.
+    pub fn nested_size(value: &Variable) -> u64 {
+        let children = |acc: u64, v: &Variable| acc.saturating_add(size(v));
         match value {
-            Variable::Array(a) => a
-                .borrow()
-                .iter()
-                .fold(1u64, |acc, v| acc.saturating_add(deep_size(v))),
-            Variable::Object(o) => o
-                .borrow()
-                .iter()
-                .fold(1u64, |acc, (_, v)| acc.saturating_add(deep_size(v))),
+            Variable::Array(a) => {
+                let a = a.borrow();
+                a.iter().fold(a.len() as u64, children)
+            }
+            Variable::Object(o) => {
+                let o = o.borrow();
+                o.iter()
+                    .fold(o.len() as u64, |acc, (_, v)| children(acc, v))
+            }
             other => size(other),
         }
+    }
+
+    /// Recursive size, for builtins whose work is proportional to all nested data
+    /// (`mergeDeep`, `fuzzyMatch`, join). The walk stops once the total exceeds `cap`
+    /// (the caller passes the meter's remaining units), so measuring is itself bounded
+    /// by the budget; any result above `cap` exhausts the meter the same way.
+    pub fn deep_size_capped(value: &Variable, cap: u64) -> u64 {
+        fn walk(value: &Variable, acc: &mut u64, cap: u64) {
+            if *acc > cap {
+                return;
+            }
+            match value {
+                Variable::Array(a) => {
+                    *acc = acc.saturating_add(1);
+                    for v in a.borrow().iter() {
+                        walk(v, acc, cap);
+                        if *acc > cap {
+                            return;
+                        }
+                    }
+                }
+                Variable::Object(o) => {
+                    *acc = acc.saturating_add(1);
+                    for (_, v) in o.borrow().iter() {
+                        walk(v, acc, cap);
+                        if *acc > cap {
+                            return;
+                        }
+                    }
+                }
+                other => *acc = acc.saturating_add(size(other)),
+            }
+        }
+        let mut acc = 0;
+        walk(value, &mut acc, cap);
+        acc.min(cap.saturating_add(1))
     }
 }

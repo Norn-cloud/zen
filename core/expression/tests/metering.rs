@@ -15,7 +15,7 @@ use wasm_bindgen_test::wasm_bindgen_test as test;
 /// Nested closures: 20 outer iterations, each mapping 20 inner elements.
 const NESTED: &str = "flatMap([0..19], map([0..19], # * 2))";
 /// Units a full evaluation of `NESTED` costs.
-const NESTED_FULL: u64 = 3449;
+const NESTED_FULL: u64 = 3469;
 /// A budget smaller than `NESTED_FULL`, and the count at which it runs out.
 const SMALL_BUDGET: u64 = 500;
 const SMALL_EXHAUSTED_AT: u64 = 502;
@@ -86,4 +86,57 @@ fn large_interval_is_charged_before_it_is_materialized() {
         .run_standard("count([0..1000000000], # > 0)")
         .unwrap_err();
     assert!(exhausted(err).used > 1_000_000_000);
+}
+
+fn cost_with(expression: &str, env: serde_json::Value) -> u64 {
+    let meter = Meter::new(u64::MAX);
+    Isolate::with_environment(env.into())
+        .with_meter(Some(meter.clone()))
+        .run_standard(expression)
+        .unwrap();
+    meter.used()
+}
+
+/// `flatten` and `merge` copy every child of their argument; they must pay for them,
+/// not just for the (length-1) outer array.
+#[test]
+fn nested_builtins_are_charged_by_the_data_they_traverse() {
+    let big: Vec<u64> = (0..1000).collect();
+    let small = cost_with("flatten(x)", json!({ "x": [[1]] }));
+    let large = cost_with("flatten(x)", json!({ "x": [big] }));
+    assert_eq!(large - small, 999);
+
+    let wide: serde_json::Map<String, serde_json::Value> =
+        (0..1000).map(|i| (format!("k{i}"), json!(i))).collect();
+    let small = cost_with("merge(x)", json!({ "x": [{ "k": 1 }] }));
+    let large = cost_with("merge(x)", json!({ "x": [wide] }));
+    assert_eq!(large - small, 999);
+
+    // Pinned absolute counts; the wasm run must reproduce them.
+    assert_eq!(cost_with("flatten(x)", json!({ "x": [big] })), FLATTEN_1000);
+    assert_eq!(
+        cost_with(
+            "mergeDeep(x)",
+            json!({ "x": [{ "a": { "b": [1, 2, 3] } }] })
+        ),
+        MERGE_DEEP_SMALL
+    );
+}
+
+const FLATTEN_1000: u64 = 1003;
+const MERGE_DEEP_SMALL: u64 = 9;
+
+/// The recursive size walk for `mergeDeep` is itself bounded by the remaining budget.
+#[test]
+fn deep_walk_is_bounded_by_the_budget() {
+    let deep: Vec<serde_json::Value> = (0..10_000).map(|i| json!({ "v": [i, i] })).collect();
+    let meter = Meter::new(100);
+    let err = Isolate::with_environment(json!({ "x": [{ "d": deep }] }).into())
+        .with_meter(Some(meter.clone()))
+        .run_standard("mergeDeep(x)")
+        .unwrap_err();
+    let exhausted = exhausted(err);
+    assert_eq!(exhausted.limit, 100);
+    // The walk stopped just past the remaining budget instead of visiting 50k values.
+    assert!(exhausted.used <= 2 * 100 + 2, "{exhausted:?}");
 }
