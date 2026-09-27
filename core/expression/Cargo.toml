@@ -33,7 +33,7 @@ strsim = "0.11"
 iana-time-zone = "0.1"
 
 zen-macros = { path = "../macros", version = "2.1.1" }
-zen-types = { path = "../types", version = "2.1.1" }
+zen-types = { path = "../types", version = "2.1.1", default-features = false }
 
 [dev-dependencies]
 csv = "1"
@@ -55,7 +55,9 @@ wasm-bindgen-test = "0.3"
 getrandom = { version = "0.3", features = ["wasm_js"] }
 
 [features]
-default = ["regex-deprecated"]
+default = ["regex-deprecated", "runtime-rng"]
+# Norn (C7): see zen-types `runtime-rng`.
+runtime-rng = ["ahash/runtime-rng", "zen-types/runtime-rng"]
 regex-lite = []
 regex-deprecated = ["dep:regex"]
 arbitrary_precision = ["serde_json/arbitrary_precision", "zen-types/arbitrary_precision"]
