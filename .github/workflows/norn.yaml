@@ -58,9 +58,9 @@ jobs:
           # Positive control: the default native tree must contain all three.
           default_tree="$(cargo tree -e normal -p zen-engine --locked)"
           for crate in reqwest tokio rquickjs; do
-            grep -qE "^[│├└ ─]*${crate} v" <<<"$default_tree" || { echo "::error::positive control: ${crate} missing from default native tree"; exit 1; }
+            grep -qE "(^|[^A-Za-z0-9_-])${crate} v[0-9]" <<<"$default_tree" || { echo "::error::positive control: ${crate} missing from default native tree"; exit 1; }
           done
-          if cargo tree -e normal -p zen-engine --no-default-features --locked | grep -E '[ ─](reqwest|tokio|rquickjs) v'; then
+          if cargo tree -e normal -p zen-engine --no-default-features --locked | grep -E '(^|[^A-Za-z0-9_-])(reqwest|tokio|rquickjs) v[0-9]'; then
             echo "::error::reqwest, tokio or rquickjs present in the --no-default-features native dependency tree"
             exit 1
           fi
