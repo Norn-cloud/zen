@@ -140,3 +140,37 @@ fn deep_walk_is_bounded_by_the_budget() {
     // The walk stopped just past the remaining budget instead of visiting 50k values.
     assert!(exhausted.used <= 2 * 100 + 2, "{exhausted:?}");
 }
+
+/// Measuring a one-level builtin's cost must itself be bounded by the budget: a
+/// 1M-element input against a budget of 100 fails after O(budget) scan steps, not after
+/// walking all 1M children. `Meter::scan_steps` counts the values visited while
+/// measuring; it is deterministic, so the same counts hold on wasm.
+#[test]
+fn nested_size_scan_is_bounded_by_the_budget() {
+    const N: usize = 1_000_000;
+    let cases = [
+        // 1M children: the outer length alone exceeds the budget, so no child is scanned.
+        ("flatten(x)", json!({ "x": vec![vec![1u8]; N] }), 0),
+        ("merge(x)", json!({ "x": vec![json!({ "k": 1 }); N] }), 0),
+        // 60 children of 10: the outer length fits, the scan stops at the 4th child.
+        ("flatten(x)", json!({ "x": vec![vec![1u8; 10]; 60] }), 4),
+    ];
+    for (expression, env, max_steps) in cases {
+        let meter = Meter::new(100);
+        let err = Isolate::with_environment(env.into())
+            .with_meter(Some(meter.clone()))
+            .run_standard(expression)
+            .unwrap_err();
+        let exhausted = exhausted(err);
+        assert_eq!(exhausted.limit, 100, "{expression}");
+        // Clamped to cap + 1, so the reported total does not depend on the input size.
+        assert_eq!(exhausted.used, NESTED_EXHAUSTED_AT, "{expression}");
+        assert!(
+            meter.scan_steps() <= max_steps,
+            "{expression}: {} scan steps",
+            meter.scan_steps()
+        );
+    }
+}
+
+const NESTED_EXHAUSTED_AT: u64 = 102;
