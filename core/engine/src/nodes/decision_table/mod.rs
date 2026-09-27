@@ -212,6 +212,13 @@ impl DecisionTableNodeHandler {
     }
 
     fn table_index(ctx: &DecisionTableContext) -> Option<&TableIndex> {
+        // Norn `metering`: index pruning skips cells, and whether it applies depends on
+        // tracing and precompilation. A metered evaluation evaluates every row so its
+        // cost is a function of the decision and input only.
+        #[cfg(feature = "metering")]
+        if ctx.extensions.meter.is_some() {
+            return None;
+        }
         ctx.extensions.dt_indexes.as_ref()?.get(&ctx.id)
     }
 
@@ -333,6 +340,17 @@ impl DecisionTableNodeHandler {
         isolate: &mut Isolate,
         pruned: Option<(&TableIndex, usize)>,
     ) -> Result<bool, StrictEvaluationError> {
+        // Norn `metering`: one unit per row considered. On exhaustion the row does not
+        // match; the graph evaluator turns the exhausted meter into a typed error.
+        #[cfg(feature = "metering")]
+        if let Some(meter) = &ctx.extensions.meter {
+            if meter
+                .charge(zen_expression::meter::cost::TABLE_ROW)
+                .is_err()
+            {
+                return Ok(false);
+            }
+        }
         for (col_idx, input) in ctx.node.inputs.iter().enumerate() {
             if pruned.is_some_and(|(ix, row_idx)| ix.decides(col_idx, row_idx)) {
                 continue;
@@ -407,6 +425,21 @@ impl DecisionTableNodeHandler {
     }
 
     fn row_trace_parts(
+        ctx: &DecisionTableContext,
+        rule: &HashMap<Arc<str>, Arc<str>>,
+        isolate: &mut Isolate,
+    ) -> (HashMap<Rc<str>, Variable>, HashMap<Rc<str>, Rc<str>>) {
+        // Norn `metering`: trace-only work is not charged, so tracing never changes cost.
+        #[cfg(feature = "metering")]
+        let meter = isolate.take_meter();
+        #[allow(clippy::let_and_return)]
+        let parts = Self::row_trace_parts_inner(ctx, rule, isolate);
+        #[cfg(feature = "metering")]
+        isolate.set_meter(meter);
+        parts
+    }
+
+    fn row_trace_parts_inner(
         ctx: &DecisionTableContext,
         rule: &HashMap<Arc<str>, Arc<str>>,
         isolate: &mut Isolate,

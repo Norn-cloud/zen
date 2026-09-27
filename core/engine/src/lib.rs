@@ -149,4 +149,7 @@ pub use error::{
     StrictEvaluationError, UnsupportedNodeError,
 };
 pub use workspace::Workspace;
+/// Norn `metering`: operation budget used by `Decision::evaluate_metered`.
+#[cfg(feature = "metering")]
+pub use zen_expression::meter;
 pub use zen_expression::Variable;

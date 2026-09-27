@@ -159,6 +159,11 @@ pub enum EvaluationError {
         got: &'static str,
         key: Arc<str>,
     },
+
+    /// Norn `metering`: the evaluation's operation budget ran out.
+    #[cfg(feature = "metering")]
+    #[error("{0}")]
+    BudgetExhausted(zen_expression::meter::BudgetExhausted),
 }
 
 impl EvaluationError {
@@ -218,6 +223,12 @@ impl EvaluationError {
                 map.serialize_entry("expected", expected)?;
                 map.serialize_entry("got", got)?;
                 map.serialize_entry("key", key)?;
+            }
+            #[cfg(feature = "metering")]
+            EvaluationError::BudgetExhausted(err) => {
+                map.serialize_entry("type", "BudgetExhausted")?;
+                map.serialize_entry("limit", &err.limit)?;
+                map.serialize_entry("used", &err.used)?;
             }
         }
 

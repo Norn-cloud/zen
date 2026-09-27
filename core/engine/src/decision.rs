@@ -72,7 +72,35 @@ impl Decision {
         context: Variable,
         options: EvaluationOptions,
     ) -> Result<DecisionGraphResponse, Box<EvaluationError>> {
-        let mut decision_graph = DecisionGraph::try_new(DecisionGraphConfig {
+        let mut decision_graph = DecisionGraph::try_new(self.graph_config(options))?;
+
+        let response = decision_graph.evaluate(context).await?;
+
+        Ok(response)
+    }
+
+    /// Norn `metering`: evaluates like [`Decision::evaluate_with_opts`], charging every
+    /// VM opcode, expensive builtin, graph node visit and decision-table row to `meter`.
+    /// Fails with [`EvaluationError::BudgetExhausted`] when it runs out. Sub-decisions
+    /// share the meter. Cost does not depend on `options.trace` or precompilation.
+    #[cfg(feature = "metering")]
+    pub async fn evaluate_metered(
+        &self,
+        context: Variable,
+        options: EvaluationOptions,
+        meter: zen_expression::meter::Meter,
+    ) -> Result<DecisionGraphResponse, Box<EvaluationError>> {
+        let mut config = self.graph_config(options);
+        config.extensions.meter = Some(meter);
+        let mut decision_graph = DecisionGraph::try_new(config)?;
+
+        let response = decision_graph.evaluate(context).await?;
+
+        Ok(response)
+    }
+
+    fn graph_config(&self, options: EvaluationOptions) -> DecisionGraphConfig {
+        DecisionGraphConfig {
             content: self.content.clone(),
             max_depth: options.max_depth,
             trace: options.trace,
@@ -87,11 +115,7 @@ impl Decision {
                 validator_cache: Arc::new(OnceCell::from(self.content.validator_cache.clone())),
                 ..Default::default()
             },
-        })?;
-
-        let response = decision_graph.evaluate(context).await?;
-
-        Ok(response)
+        }
     }
 
     pub async fn evaluate_serialized(

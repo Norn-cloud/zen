@@ -174,10 +174,22 @@ impl DecisionGraph {
 
         let mut walker = GraphWalker::new(&self.graph);
         let mut tracer = NodeTracer::new(self.config.trace);
+        #[cfg(feature = "metering")]
+        let meter = self.config.extensions.meter.clone();
+        #[cfg(feature = "metering")]
+        {
+            walker.meter = meter.clone();
+        }
 
         while let Some(nid) = walker.next(&mut self.graph, tracer.trace_callback()) {
             if let Some(_) = walker.get_node_data(nid) {
                 continue;
+            }
+            #[cfg(feature = "metering")]
+            if let Some(meter) = &meter {
+                meter
+                    .charge(zen_expression::meter::cost::NODE_VISIT)
+                    .map_err(EvaluationError::BudgetExhausted)?;
             }
 
             let node = &self.graph[nid];
@@ -247,6 +259,13 @@ impl DecisionGraph {
                 start.map(|s| s.elapsed()).unwrap_or_default(),
             );
 
+            // Norn `metering`: exhaustion wins over whatever the node made of it (a
+            // swallowed VM error, a non-match, or a wrapped sub-decision error).
+            #[cfg(feature = "metering")]
+            if let Some(exhausted) = meter.as_ref().and_then(|m| m.exhausted()) {
+                return Err(Box::new(EvaluationError::BudgetExhausted(exhausted)));
+            }
+
             let output = match node_execution {
                 Ok(ok) => ok.output,
                 Err(err) => return Err(node_error(tracer, err.node_id, err.source)),
@@ -274,6 +293,11 @@ impl DecisionGraph {
             if matches!(node.kind, DecisionNodeKind::OutputNode { .. }) {
                 break;
             }
+        }
+
+        #[cfg(feature = "metering")]
+        if let Some(exhausted) = meter.as_ref().and_then(|m| m.exhausted()) {
+            return Err(Box::new(EvaluationError::BudgetExhausted(exhausted)));
         }
 
         // Norn `strict-errors`: a failed switch condition aborts the evaluation.

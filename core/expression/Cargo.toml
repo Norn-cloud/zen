@@ -36,13 +36,23 @@ zen-macros = { path = "../macros", version = "2.1.1" }
 zen-types = { path = "../types", version = "2.1.1" }
 
 [dev-dependencies]
-criterion = { workspace = true }
 csv = "1"
 serde_json5 = "0.2"
 toml = "0.8"
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 recursive = { workspace = true }
+
+# Norn: criterion (rayon) cannot build for wasm; benches are native-only anyway.
+[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
+criterion = { workspace = true }
+
+# Norn: runs the `metering` determinism tests on wasm32-unknown-unknown.
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dev-dependencies]
+wasm-bindgen-test = "0.3"
+# ahash's runtime RNG needs a JS entropy source on wasm32-unknown-unknown (zen-engine
+# gets the same feature through jsonschema).
+getrandom = { version = "0.3", features = ["wasm_js"] }
 
 [features]
 default = ["regex-deprecated"]
@@ -51,6 +61,8 @@ regex-deprecated = ["dep:regex"]
 arbitrary_precision = ["serde_json/arbitrary_precision", "zen-types/arbitrary_precision"]
 # Norn: see zen-types `deterministic-maps`.
 deterministic-maps = ["zen-types/deterministic-maps"]
+# Norn semantic patch (default off; see NORN.md): deterministic operation budget (`meter`).
+metering = []
 
 [[bench]]
 harness = false
