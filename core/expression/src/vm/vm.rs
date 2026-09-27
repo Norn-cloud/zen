@@ -1058,7 +1058,8 @@ impl VMInner<'_, '_> {
             return Ok(());
         };
 
-        let units = crate::meter::cost::OPCODE.saturating_add(self.data_cost(op));
+        let units =
+            crate::meter::cost::OPCODE.saturating_add(self.data_cost(op, meter.remaining()));
         meter
             .charge(units)
             .map_err(crate::vm::VMError::BudgetExhausted)
@@ -1069,22 +1070,22 @@ impl VMInner<'_, '_> {
         self.stack.iter().rev().nth(n)
     }
 
-    fn data_cost(&self, op: &Opcode) -> u64 {
+    /// Units for the data `op` is about to traverse. `cap` bounds recursive walks; any
+    /// result above it exhausts the meter regardless of the exact value.
+    fn data_cost(&self, op: &Opcode, cap: u64) -> u64 {
         use crate::functions::{FunctionKind, InternalFunction as F};
-        use crate::meter::cost::{deep_size, size, REGEX_COMPILE};
+        use crate::meter::cost::{deep_size_capped, nested_size, size, REGEX_COMPILE};
 
         let size_of = |n: usize| self.peek(n).map(size).unwrap_or(0);
-        let sum = |values: &[Variable], f: fn(&Variable) -> u64| {
+        let deep = |v: &Variable| deep_size_capped(v, cap);
+        let sum = |values: &[Variable], f: &dyn Fn(&Variable) -> u64| {
             values.iter().fold(0u64, |acc, v| acc.saturating_add(f(v)))
         };
 
         match op {
             // Data-proportional opcodes.
-            Opcode::Join => self.peek(1).map(deep_size).unwrap_or(0),
-            Opcode::Flatten => match self.peek(0) {
-                Some(Array(a)) => sum(&a.borrow(), size),
-                _ => 0,
-            },
+            Opcode::Join => self.peek(1).map(deep).unwrap_or(0),
+            Opcode::Flatten => self.peek(0).map(nested_size).unwrap_or(0),
             Opcode::Slice => size_of(2),
             Opcode::In | Opcode::Equal => size_of(0).saturating_add(size_of(1)),
             Opcode::Add => match (self.peek(1), self.peek(0)) {
@@ -1107,20 +1108,23 @@ impl VMInner<'_, '_> {
                 let args = &self.stack[start..];
                 match kind {
                     FunctionKind::Internal(F::Matches | F::Extract) => {
-                        REGEX_COMPILE.saturating_add(sum(args, size))
+                        REGEX_COMPILE.saturating_add(sum(args, &size))
                     }
+                    // One level: the outer array plus every child they copy.
+                    FunctionKind::Internal(F::Flatten | F::Merge) => sum(args, &nested_size),
+                    // Every string in the (possibly array) subject against the pattern.
                     FunctionKind::Internal(F::FuzzyMatch) => args
                         .first()
-                        .map(size)
+                        .map(deep)
                         .unwrap_or(0)
-                        .saturating_mul(args.get(1).map(deep_size).unwrap_or(0)),
-                    FunctionKind::Internal(F::MergeDeep) => sum(args, deep_size),
-                    _ => sum(args, size),
+                        .saturating_mul(args.get(1).map(size).unwrap_or(0)),
+                    FunctionKind::Internal(F::MergeDeep) => sum(args, &deep),
+                    _ => sum(args, &size),
                 }
             }
             Opcode::CallMethod { arg_count, .. } => {
                 let start = self.stack.len().saturating_sub(*arg_count as usize + 1);
-                sum(&self.stack[start..], size)
+                sum(&self.stack[start..], &size)
             }
             _ => 0,
         }

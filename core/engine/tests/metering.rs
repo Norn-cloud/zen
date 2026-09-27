@@ -123,3 +123,54 @@ async fn unmetered_evaluation_is_unchanged() {
         .unwrap();
     assert_eq!(Value::from(result.result), json!({ "tier": "big" }));
 }
+
+/// A transform-attributes loop over an input array with a node that does no VM work.
+fn transform_loop() -> Decision {
+    let content: GraphContent = serde_json::from_value(json!({
+        "nodes": [
+            { "id": "in", "name": "in", "type": "inputNode" },
+            { "id": "expr", "name": "expr", "type": "expressionNode", "content": {
+                "expressions": [],
+                "inputField": "items",
+                "executionMode": "loop"
+            }},
+            { "id": "out", "name": "out", "type": "outputNode" }
+        ],
+        "edges": [
+            { "id": "e1", "sourceId": "in", "targetId": "expr" },
+            { "id": "e2", "sourceId": "expr", "targetId": "out" }
+        ]
+    }))
+    .unwrap();
+    Decision::from(content)
+}
+
+async fn run_loop(items: usize, limit: u64) -> (Result<Value, Box<EvaluationError>>, Meter) {
+    let meter = Meter::new(limit);
+    let input = json!({ "items": vec![json!({}); items] });
+    let result = transform_loop()
+        .evaluate_metered(input.into(), Default::default(), meter.clone())
+        .await
+        .map(|r| r.result.into());
+    (result, meter)
+}
+
+#[tokio::test]
+async fn transform_loop_is_charged_per_element() {
+    // Cost grows by exactly one unit per element (plus the fixed graph overhead).
+    let (small, small_meter) = run_loop(10, u64::MAX).await;
+    small.unwrap();
+    let (large, large_meter) = run_loop(1_000, u64::MAX).await;
+    large.unwrap();
+    assert_eq!(large_meter.used() - small_meter.used(), 990);
+
+    // A large array exhausts a small budget, up front and with a typed error.
+    let (result, meter) = run_loop(100_000, 1_000).await;
+    let err = result.unwrap_err();
+    let EvaluationError::BudgetExhausted(exhausted) = *err else {
+        panic!("expected BudgetExhausted, got {err:?}");
+    };
+    assert_eq!(exhausted.limit, 1_000);
+    assert!(exhausted.used > 100_000, "{exhausted:?}");
+    assert_eq!(meter.exhausted(), Some(exhausted));
+}

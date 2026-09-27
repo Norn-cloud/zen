@@ -195,3 +195,164 @@ async fn passing_switch_is_unchanged() {
         json!({ "decision": "deny" })
     );
 }
+
+/// An 8+ row table is indexable (`compile()` builds a table index). The index decides
+/// `in [...]` cells without running them, so an object input would be pruned instead of
+/// failing; strict evaluation must still raise the typed error.
+fn indexed_table() -> Decision {
+    let mut rules: Vec<Value> = (0..9)
+        .map(|i| json!({ "_id": format!("r{i}"), "c": format!("in [{}, {}]", 2 * i, 2 * i + 1), "o": "'deny'" }))
+        .collect();
+    rules.push(json!({ "_id": "fallback", "c": "", "o": "'allow'" }));
+    decision(
+        json!([
+            { "id": "in", "name": "in", "type": "inputNode" },
+            { "id": "table", "name": "table", "type": "decisionTableNode", "content": {
+                "hitPolicy": "first",
+                "inputs": [{ "id": "c", "name": "c", "field": "customer", "type": "expression" }],
+                "outputs": [{ "id": "o", "name": "decision", "field": "decision", "type": "expression" }],
+                "rules": rules
+            }},
+            { "id": "out", "name": "out", "type": "outputNode" }
+        ]),
+        json!([
+            edge("e1", "in", "table", None),
+            edge("e2", "table", "out", None)
+        ]),
+    )
+}
+
+#[tokio::test]
+async fn indexed_table_cannot_prune_a_failing_cell_into_a_fallback() {
+    let plain = indexed_table();
+    let mut compiled = indexed_table();
+    compiled.compile();
+    for (name, table) in [("uncompiled", &plain), ("compiled", &compiled)] {
+        for trace in [false, true] {
+            // `customer` is an object: `in [0, 1]` on it is a VM type error.
+            let result = run(table, trace).await;
+            if STRICT {
+                let err = strict_error(result.unwrap_err(), "table");
+                assert_eq!(err.site, StrictErrorSite::DecisionTableInput, "{name}");
+            } else {
+                assert_eq!(
+                    result.unwrap(),
+                    json!({ "decision": "allow" }),
+                    "{name} trace={trace}"
+                );
+            }
+        }
+        // A matching number still hits its row.
+        let ok = table
+            .evaluate(json!({ "customer": 5 }).into())
+            .await
+            .unwrap();
+        assert_eq!(
+            Value::from(ok.result),
+            json!({ "decision": "deny" }),
+            "{name}"
+        );
+    }
+}
+
+/// Parent graph whose decision node calls `child`, which contains `failing_node`.
+fn parent_of(failing_node: Value) -> Decision {
+    use std::sync::Arc;
+    use zen_engine::loader::MemoryLoader;
+
+    let child: GraphContent = serde_json::from_value(json!({
+        "nodes": [
+            { "id": "in", "name": "in", "type": "inputNode" },
+            failing_node,
+            { "id": "out", "name": "out", "type": "outputNode" }
+        ],
+        "edges": [edge("e1", "in", "inner", None), edge("e2", "inner", "out", None)]
+    }))
+    .unwrap();
+    let loader = Arc::new(MemoryLoader::default());
+    loader.add("child", child);
+
+    decision(
+        json!([
+            { "id": "in", "name": "in", "type": "inputNode" },
+            { "id": "sub", "name": "sub", "type": "decisionNode", "content": { "key": "child" } },
+            { "id": "out", "name": "out", "type": "outputNode" }
+        ]),
+        json!([
+            edge("e1", "in", "sub", None),
+            edge("e2", "sub", "out", None)
+        ]),
+    )
+    .with_loader(loader)
+}
+
+/// Returns the child's `EvaluationError` found as the parent decision node's source.
+fn child_error(err: Box<EvaluationError>) -> (String, Box<dyn std::error::Error>) {
+    let message = err.to_string();
+    let EvaluationError::NodeError {
+        node_id, source, ..
+    } = *err
+    else {
+        panic!("expected NodeError, got {err:?}");
+    };
+    assert_eq!(&*node_id, "sub");
+    let child = source
+        .downcast_ref::<EvaluationError>()
+        .expect("sub-decision source should be the child EvaluationError, not a string");
+    let EvaluationError::NodeError { node_id, .. } = child else {
+        panic!("expected child NodeError, got {child:?}");
+    };
+    assert_eq!(&**node_id, "inner");
+    // The parent's message is unchanged from upstream (the child's message).
+    assert_eq!(message, child.to_string());
+    (message, source)
+}
+
+/// A sub-decision's failure stays in the error source chain, in both modes.
+#[tokio::test]
+async fn sub_decision_error_is_preserved_in_the_source_chain() {
+    let parent = parent_of(json!({
+        "id": "inner", "name": "inner", "type": "expressionNode", "content": {
+            "expressions": [{ "id": "x", "key": "x", "value": "customer.name - 1" }]
+        }
+    }));
+    let (message, _) = child_error(parent.evaluate(input()).await.unwrap_err());
+    assert!(message.contains("customer.name - 1"), "{message}");
+}
+
+/// Under `strict-errors`, callers can downcast through the chain to the typed error.
+#[tokio::test]
+async fn sub_decision_strict_error_is_downcastable() {
+    let parent = parent_of(json!({
+        "id": "inner", "name": "inner", "type": "decisionTableNode", "content": {
+            "hitPolicy": "first",
+            "inputs": [{ "id": "cond", "name": "cond", "type": "expression" }],
+            "outputs": [{ "id": "o", "name": "decision", "field": "decision", "type": "expression" }],
+            "rules": [
+                { "_id": "deny", "cond": FAILING, "o": "'deny'" },
+                { "_id": "fallback", "cond": "", "o": "'allow'" }
+            ]
+        }
+    }));
+    let result = parent.evaluate(input()).await;
+    if !STRICT {
+        assert_eq!(
+            Value::from(result.unwrap().result),
+            json!({ "decision": "allow" })
+        );
+        return;
+    }
+
+    let (_, source) = child_error(result.unwrap_err());
+    let mut current: Option<&dyn std::error::Error> = Some(source.as_ref());
+    let mut strict = None;
+    while let Some(e) = current {
+        if let Some(s) = e.downcast_ref::<StrictEvaluationError>() {
+            strict = Some(s.clone());
+        }
+        current = e.source();
+    }
+    let strict = strict.expect("StrictEvaluationError in the source chain");
+    assert_eq!(strict.site, StrictErrorSite::DecisionTableInput);
+    assert_eq!(&*strict.expression, FAILING);
+}
