@@ -987,6 +987,21 @@ fn arithmetic_overflow_errors_instead_of_panicking() {
 }
 
 #[test]
+fn empty_array_aggregates_error_instead_of_panicking() {
+    let mut isolate = Isolate::new();
+
+    for expr in ["median([])", "avg([])", "mode([])"] {
+        let err = isolate
+            .run_standard(expr)
+            .expect_err(&format!("{expr} should be an error"));
+        assert!(
+            format!("{err:?}").contains("Empty array"),
+            "{expr}: unexpected error {err:?}"
+        );
+    }
+}
+
+#[test]
 fn division_and_modulo_by_zero_return_null() {
     let mut isolate = Isolate::new();
 
