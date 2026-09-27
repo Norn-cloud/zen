@@ -687,6 +687,11 @@ pub(crate) mod imp {
 
     pub fn median(args: Arguments) -> anyhow::Result<V> {
         let mut a = __internal_number_array(&args, 0)?;
+        // Norn: `center - 1` below underflows for an empty array (panic in debug,
+        // wrap in release). Reject it like `avg` / `mode` do.
+        if a.is_empty() {
+            return Err(anyhow!("Empty array"));
+        }
         a.sort();
 
         let center = a.len() / 2;
