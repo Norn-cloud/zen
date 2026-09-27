@@ -1058,8 +1058,10 @@ impl VMInner<'_, '_> {
             return Ok(());
         };
 
-        let units =
-            crate::meter::cost::OPCODE.saturating_add(self.data_cost(op, meter.remaining()));
+        let mut steps = 0;
+        let data = self.data_cost(op, meter.remaining(), &mut steps);
+        meter.record_scan(steps);
+        let units = crate::meter::cost::OPCODE.saturating_add(data);
         meter
             .charge(units)
             .map_err(crate::vm::VMError::BudgetExhausted)
@@ -1072,20 +1074,34 @@ impl VMInner<'_, '_> {
 
     /// Units for the data `op` is about to traverse. `cap` bounds recursive walks; any
     /// result above it exhausts the meter regardless of the exact value.
-    fn data_cost(&self, op: &Opcode, cap: u64) -> u64 {
+    fn data_cost(&self, op: &Opcode, cap: u64, steps: &mut u64) -> u64 {
         use crate::functions::{FunctionKind, InternalFunction as F};
-        use crate::meter::cost::{deep_size_capped, nested_size, size, REGEX_COMPILE};
+        use crate::meter::cost::{deep_size_capped, nested_size_capped, size, REGEX_COMPILE};
+        use std::cell::Cell;
 
         let size_of = |n: usize| self.peek(n).map(size).unwrap_or(0);
-        let deep = |v: &Variable| deep_size_capped(v, cap);
+        // Both measurements stop once they exceed `cap`; `steps` counts what they visit.
+        let scanned = Cell::new(0u64);
+        let deep = |v: &Variable| {
+            let mut n = 0;
+            let r = deep_size_capped(v, cap, &mut n);
+            scanned.set(scanned.get() + n);
+            r
+        };
+        let nested = |v: &Variable| {
+            let mut n = 0;
+            let r = nested_size_capped(v, cap, &mut n);
+            scanned.set(scanned.get() + n);
+            r
+        };
         let sum = |values: &[Variable], f: &dyn Fn(&Variable) -> u64| {
             values.iter().fold(0u64, |acc, v| acc.saturating_add(f(v)))
         };
 
-        match op {
+        let cost = match op {
             // Data-proportional opcodes.
             Opcode::Join => self.peek(1).map(deep).unwrap_or(0),
-            Opcode::Flatten => self.peek(0).map(nested_size).unwrap_or(0),
+            Opcode::Flatten => self.peek(0).map(nested).unwrap_or(0),
             Opcode::Slice => size_of(2),
             Opcode::In | Opcode::Equal => size_of(0).saturating_add(size_of(1)),
             Opcode::Add => match (self.peek(1), self.peek(0)) {
@@ -1111,7 +1127,7 @@ impl VMInner<'_, '_> {
                         REGEX_COMPILE.saturating_add(sum(args, &size))
                     }
                     // One level: the outer array plus every child they copy.
-                    FunctionKind::Internal(F::Flatten | F::Merge) => sum(args, &nested_size),
+                    FunctionKind::Internal(F::Flatten | F::Merge) => sum(args, &nested),
                     // Every string in the (possibly array) subject against the pattern.
                     FunctionKind::Internal(F::FuzzyMatch) => args
                         .first()
@@ -1127,6 +1143,8 @@ impl VMInner<'_, '_> {
                 sum(&self.stack[start..], &size)
             }
             _ => 0,
-        }
+        };
+        *steps += scanned.get();
+        cost
     }
 }

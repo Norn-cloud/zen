@@ -37,6 +37,8 @@ struct Inner {
     used: AtomicU64,
     /// `used` value of the first failing charge; 0 while not exhausted.
     exhausted_at: AtomicU64,
+    /// Values visited while measuring data-proportional charges (diagnostics/tests).
+    scan_steps: AtomicU64,
 }
 
 impl Meter {
@@ -45,11 +47,23 @@ impl Meter {
             limit,
             used: AtomicU64::new(0),
             exhausted_at: AtomicU64::new(0),
+            scan_steps: AtomicU64::new(0),
         }))
     }
 
     pub fn limit(&self) -> u64 {
         self.0.limit
+    }
+
+    /// Values visited so far while *measuring* charges (not charged work). Measuring
+    /// stops once a cost exceeds the remaining budget, so this stays O(budget) even for
+    /// arbitrarily large inputs.
+    pub fn scan_steps(&self) -> u64 {
+        self.0.scan_steps.load(Ordering::Relaxed)
+    }
+
+    pub(crate) fn record_scan(&self, steps: u64) {
+        self.0.scan_steps.fetch_add(steps, Ordering::Relaxed);
     }
 
     /// Units still available before the limit.
@@ -124,17 +138,40 @@ pub mod cost {
 
     /// A container's length plus the shallow size of each direct child: the data that
     /// one-level builtins (`flatten`, `merge`, the flatten opcode) traverse.
-    pub fn nested_size(value: &Variable) -> u64 {
-        let children = |acc: u64, v: &Variable| acc.saturating_add(size(v));
+    ///
+    /// Bounded by `cap` (the meter's remaining units): the outer length is counted first
+    /// in O(1), and the child scan stops as soon as the total exceeds `cap`. Any result
+    /// above `cap` exhausts the meter the same way, so the value is clamped to `cap + 1`
+    /// and never depends on how far past the budget the input goes. `steps` counts the
+    /// children visited.
+    pub fn nested_size_capped(value: &Variable, cap: u64, steps: &mut u64) -> u64 {
+        fn scan<'a>(
+            len: usize,
+            children: impl Iterator<Item = &'a Variable>,
+            cap: u64,
+            steps: &mut u64,
+        ) -> u64 {
+            let mut acc = len as u64;
+            if acc > cap {
+                return cap.saturating_add(1);
+            }
+            for child in children {
+                *steps += 1;
+                acc = acc.saturating_add(size(child));
+                if acc > cap {
+                    return cap.saturating_add(1);
+                }
+            }
+            acc
+        }
         match value {
             Variable::Array(a) => {
                 let a = a.borrow();
-                a.iter().fold(a.len() as u64, children)
+                scan(a.len(), a.iter(), cap, steps)
             }
             Variable::Object(o) => {
                 let o = o.borrow();
-                o.iter()
-                    .fold(o.len() as u64, |acc, (_, v)| children(acc, v))
+                scan(o.len(), o.values(), cap, steps)
             }
             other => size(other),
         }
@@ -143,17 +180,19 @@ pub mod cost {
     /// Recursive size, for builtins whose work is proportional to all nested data
     /// (`mergeDeep`, `fuzzyMatch`, join). The walk stops once the total exceeds `cap`
     /// (the caller passes the meter's remaining units), so measuring is itself bounded
-    /// by the budget; any result above `cap` exhausts the meter the same way.
-    pub fn deep_size_capped(value: &Variable, cap: u64) -> u64 {
-        fn walk(value: &Variable, acc: &mut u64, cap: u64) {
+    /// by the budget; any result above `cap` is clamped to `cap + 1`. `steps` counts the
+    /// values visited.
+    pub fn deep_size_capped(value: &Variable, cap: u64, steps: &mut u64) -> u64 {
+        fn walk(value: &Variable, acc: &mut u64, cap: u64, steps: &mut u64) {
             if *acc > cap {
                 return;
             }
+            *steps += 1;
             match value {
                 Variable::Array(a) => {
                     *acc = acc.saturating_add(1);
                     for v in a.borrow().iter() {
-                        walk(v, acc, cap);
+                        walk(v, acc, cap, steps);
                         if *acc > cap {
                             return;
                         }
@@ -162,7 +201,7 @@ pub mod cost {
                 Variable::Object(o) => {
                     *acc = acc.saturating_add(1);
                     for (_, v) in o.borrow().iter() {
-                        walk(v, acc, cap);
+                        walk(v, acc, cap, steps);
                         if *acc > cap {
                             return;
                         }
@@ -172,7 +211,7 @@ pub mod cost {
             }
         }
         let mut acc = 0;
-        walk(value, &mut acc, cap);
+        walk(value, &mut acc, cap, steps);
         acc.min(cap.saturating_add(1))
     }
 }
