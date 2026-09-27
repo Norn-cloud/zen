@@ -104,7 +104,10 @@ impl NodeHandler for DecisionNodeHandler {
                     ctx.trace(|t| *t = trace.to_variable());
                 }
 
-                ctx.error(err.to_string())
+                // Norn: keep the child error in the source chain (same message as the
+                // upstream `to_string()`), so callers can downcast through it, e.g. to
+                // `StrictEvaluationError`.
+                ctx.error(*err)
             }
         }
     }
