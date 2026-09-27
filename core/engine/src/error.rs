@@ -28,6 +28,17 @@ pub struct UnsupportedNodeError {
     pub feature: &'static str,
 }
 
+/// Norn: returned (as the `source` of [`EvaluationError::NodeError`]) when a node's JSON
+/// schema cannot be compiled. `unresolved_reference` is set when compilation failed on
+/// a `$ref` that could not be retrieved, e.g. a remote or file reference in a build
+/// without the `schema-resolvers` feature. The message is jsonschema's own.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[error("{message}")]
+pub struct SchemaCompileError {
+    pub message: String,
+    pub unresolved_reference: bool,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CompileFailure {
