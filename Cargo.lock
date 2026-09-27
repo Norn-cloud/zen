@@ -6170,6 +6170,7 @@ version = "2.1.1"
 dependencies = [
  "ahash 0.8.12",
  "hipstr",
+ "indexmap",
  "nohash-hasher",
  "rust_decimal",
  "rust_decimal_macros",

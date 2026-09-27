@@ -49,6 +49,8 @@ default = ["regex-deprecated"]
 regex-lite = []
 regex-deprecated = ["dep:regex"]
 arbitrary_precision = ["serde_json/arbitrary_precision", "zen-types/arbitrary_precision"]
+# Norn: see zen-types `deterministic-maps`.
+deterministic-maps = ["zen-types/deterministic-maps"]
 
 [[bench]]
 harness = false

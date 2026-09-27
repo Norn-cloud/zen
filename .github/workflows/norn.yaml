@@ -77,7 +77,7 @@ jobs:
           fi
 
   semantic-features:
-    name: Norn semantic features on (strict-errors)
+    name: Norn semantic features on (strict-errors, deterministic-maps)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -90,6 +90,8 @@ jobs:
       - name: upstream + Norn tests, default features plus the semantic patches
         run: cargo test --workspace --exclude zen-ffi --exclude zen-nodejs --exclude zen-python --features "$NORN_SEMANTIC" --locked
       - name: pure profile plus the semantic patches
-        run: cargo test -p zen-engine --no-default-features --features "$NORN_SEMANTIC" --lib --test strict_errors --locked
+        run: |
+          cargo test -p zen-engine --no-default-features --features "$NORN_SEMANTIC" --lib --test strict_errors --locked
+          cargo test -p zen-expression --no-default-features --features deterministic-maps --test deterministic_maps --locked
     env:
-      NORN_SEMANTIC: zen-engine/strict-errors
+      NORN_SEMANTIC: zen-engine/strict-errors,zen-engine/deterministic-maps,zen-expression/deterministic-maps
