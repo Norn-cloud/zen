@@ -15,7 +15,9 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 
 [features]
-default = ["regex-deprecated"]
+default = ["regex-deprecated", "runtime-rng"]
+# Norn (C7): see zen-types `runtime-rng`.
+runtime-rng = ["zen-expression/runtime-rng"]
 
 regex-lite = ["zen-expression/regex-lite"]
 regex-deprecated = ["zen-expression/regex-deprecated"]

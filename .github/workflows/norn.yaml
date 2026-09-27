@@ -66,6 +66,17 @@ jobs:
           fi
       - name: build for wasm32-unknown-unknown (no libclang required)
         run: cargo build -p zen-engine --no-default-features --target wasm32-unknown-unknown --release --locked
+      - name: build the zen-expression Norn profile alone for wasm32-unknown-unknown (C7)
+        run: cargo build -p zen-expression --no-default-features --features regex-lite,deterministic-maps,metering --target wasm32-unknown-unknown --release --locked
+      - name: assert getrandom is absent from the zen-expression Norn profile wasm tree (C7)
+        run: |
+          set -euo pipefail
+          # Positive control: the default tree seeds ahash from getrandom.
+          cargo tree -e normal --target wasm32-unknown-unknown -p zen-expression --locked | grep -qE '(^|[^A-Za-z0-9_-])getrandom v[0-9]'
+          if cargo tree -e normal --target wasm32-unknown-unknown -p zen-expression --no-default-features --features regex-lite,deterministic-maps,metering --locked | grep -E '(^|[^A-Za-z0-9_-])(getrandom|tokio|rquickjs|reqwest|regex) v[0-9]'; then
+            echo "::error::getrandom, a runtime or the regex backend is present in the zen-expression Norn profile wasm32 tree"
+            exit 1
+          fi
       - name: assert tokio / rquickjs are absent from the pure wasm tree
         run: |
           set -euo pipefail
