@@ -39,6 +39,67 @@ pub struct SchemaCompileError {
     pub unresolved_reference: bool,
 }
 
+/// Norn: where a [`StrictEvaluationError`] was raised.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StrictErrorSite {
+    /// A decision-table input (predicate) cell.
+    DecisionTableInput,
+    /// A decision-table output cell of a matching row.
+    DecisionTableOutput,
+    /// A switch statement condition.
+    SwitchCondition,
+}
+
+impl fmt::Display for StrictErrorSite {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            StrictErrorSite::DecisionTableInput => "decision table input",
+            StrictErrorSite::DecisionTableOutput => "decision table output",
+            StrictErrorSite::SwitchCondition => "switch condition",
+        })
+    }
+}
+
+/// Norn (`strict-errors` feature): returned, as the `source` of
+/// [`EvaluationError::NodeError`], when a decision-table cell or a switch condition fails
+/// to evaluate or a predicate/condition is not a boolean. Upstream (feature off) treats
+/// these as a non-match, a missing row result, or a false condition.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[error("{site} `{expression}` ({id}) failed: {message}")]
+pub struct StrictEvaluationError {
+    pub site: StrictErrorSite,
+    /// Column id (decision table) or statement id (switch).
+    pub id: Arc<str>,
+    pub expression: Arc<str>,
+    pub message: String,
+}
+
+impl StrictEvaluationError {
+    pub(crate) fn new(
+        site: StrictErrorSite,
+        id: &str,
+        expression: &str,
+        message: impl ToString,
+    ) -> Self {
+        Self {
+            site,
+            id: Arc::from(id),
+            expression: Arc::from(expression),
+            message: message.to_string(),
+        }
+    }
+
+    /// Norn `strict-errors`: with the feature on, the error aborts evaluation; with it
+    /// off, `fallback` is used exactly as upstream does.
+    pub(crate) fn or_fallback<T>(result: Result<T, Self>, fallback: T) -> Result<T, Self> {
+        match result {
+            Err(err) if cfg!(feature = "strict-errors") => Err(err),
+            Err(_) => Ok(fallback),
+            ok => ok,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CompileFailure {

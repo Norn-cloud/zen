@@ -249,25 +249,7 @@ impl DecisionGraph {
 
             let output = match node_execution {
                 Ok(ok) => ok.output,
-                Err(err) => {
-                    let trace = tracer.into_traces();
-                    if let Some(t) = &trace {
-                        let mut cleaner = VariableCleaner::new();
-                        t.values().for_each(|v| {
-                            cleaner.clean(&v.input);
-                            cleaner.clean(&v.output);
-                            if let Some(td) = &v.trace_data {
-                                cleaner.clean(td);
-                            }
-                        })
-                    }
-
-                    return Err(Box::new(EvaluationError::NodeError {
-                        node_id: err.node_id,
-                        source: err.source,
-                        trace: trace.map(|t| t.to_variable()),
-                    }));
-                }
+                Err(err) => return Err(node_error(tracer, err.node_id, err.source)),
             };
 
             let nodes_view = match (&node.kind, &self.parent_nodes) {
@@ -292,6 +274,12 @@ impl DecisionGraph {
             if matches!(node.kind, DecisionNodeKind::OutputNode { .. }) {
                 break;
             }
+        }
+
+        // Norn `strict-errors`: a failed switch condition aborts the evaluation.
+        if let Some((nid, err)) = walker.take_error() {
+            let node_id = self.graph[nid].id.clone();
+            return Err(node_error(tracer, node_id, Box::new(err)));
         }
 
         let result = walker.ending_variables(&self.graph);
@@ -387,6 +375,30 @@ impl DecisionGraphResponse {
 
         map.end()
     }
+}
+
+fn node_error(
+    tracer: NodeTracer,
+    node_id: Arc<str>,
+    source: Box<dyn std::error::Error>,
+) -> Box<EvaluationError> {
+    let trace = tracer.into_traces();
+    if let Some(t) = &trace {
+        let mut cleaner = VariableCleaner::new();
+        t.values().for_each(|v| {
+            cleaner.clean(&v.input);
+            cleaner.clean(&v.output);
+            if let Some(td) = &v.trace_data {
+                cleaner.clean(td);
+            }
+        })
+    }
+
+    Box::new(EvaluationError::NodeError {
+        node_id,
+        source,
+        trace: trace.map(|t| t.to_variable()),
+    })
 }
 
 async fn handle_node<NodeData, TraceData, NodeHandlerType>(

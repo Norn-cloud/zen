@@ -153,6 +153,8 @@ async fn typescript_enum_function_node_is_transformed_and_evaluated() {
 
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
+// Norn: relies on upstream's failing-cell fallback, which `strict-errors` removes.
+#[cfg_attr(feature = "strict-errors", ignore = "upstream fallback semantics")]
 async fn decision_table_first_hit_trace_matches_untraced() {
     let content = serde_json::from_value(json!({
         "nodes": [
@@ -279,6 +281,8 @@ async fn decision_table_column_collect_from_file() {
 
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
+// Norn: relies on upstream's failing-cell fallback, which `strict-errors` removes.
+#[cfg_attr(feature = "strict-errors", ignore = "upstream fallback semantics")]
 async fn decision_table_first_hit_column_collect() {
     let content = serde_json::from_value(json!({
         "nodes": [

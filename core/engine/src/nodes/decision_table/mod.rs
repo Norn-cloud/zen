@@ -1,6 +1,7 @@
 use crate::nodes::definition::NodeHandler;
 use crate::nodes::result::NodeResult;
-use crate::nodes::{NodeContext, NodeResponse};
+use crate::nodes::{NodeContext, NodeContextExt, NodeResponse};
+use crate::{StrictErrorSite, StrictEvaluationError};
 use ahash::HashMap;
 use fixedbitset::FixedBitSet;
 use index::TableIndex;
@@ -60,8 +61,9 @@ impl DecisionTableNodeHandler {
                     continue;
                 }
                 let pruned = pruner.map(|ix| (ix, row_idx));
-                if let Some(RowResult::Output(output)) =
-                    self.evaluate_row(&ctx, rule, &mut isolate, pruned)
+                if let Some(RowResult::Output(output)) = self
+                    .evaluate_row(&ctx, rule, &mut isolate, pruned)
+                    .node_context(&ctx)?
                 {
                     return ctx.success(output);
                 }
@@ -72,18 +74,24 @@ impl DecisionTableNodeHandler {
             });
         }
 
-        let hit = ctx.node.rules.iter().enumerate().find_map(|(index, rule)| {
-            match self.evaluate_row(&ctx, rule, &mut isolate, None)? {
-                RowResult::WithTrace {
+        let mut hit = None;
+        for (index, rule) in ctx.node.rules.iter().enumerate() {
+            let row = self
+                .evaluate_row(&ctx, rule, &mut isolate, None)
+                .node_context(&ctx)?;
+            hit = match row {
+                None => continue,
+                Some(RowResult::WithTrace {
                     output,
                     reference_map,
                     rule,
-                } => Some((index, output, reference_map, rule)),
-                RowResult::Output(output) => {
+                }) => Some((index, output, reference_map, rule)),
+                Some(RowResult::Output(output)) => {
                     Some((index, output, Default::default(), Default::default()))
                 }
-            }
-        });
+            };
+            break;
+        }
 
         match hit {
             Some((index, output, reference_map, rule)) => {
@@ -120,7 +128,10 @@ impl DecisionTableNodeHandler {
                 continue;
             }
             let pruned = pruner.map(|ix| (ix, index));
-            if let Some(result) = self.evaluate_row(&ctx, rule, &mut isolate, pruned) {
+            if let Some(result) = self
+                .evaluate_row(&ctx, rule, &mut isolate, pruned)
+                .node_context(&ctx)?
+            {
                 match result {
                     RowResult::Output(output) => {
                         outputs.push(output);
@@ -159,17 +170,43 @@ impl DecisionTableNodeHandler {
         if rule_value.is_empty() {
             return true;
         }
+        Self::evaluate_cell(input, rule_value, isolate).unwrap_or(false)
+    }
+
+    /// Norn: evaluates one input cell. `Err` means the cell failed to evaluate or did not
+    /// produce a boolean; upstream treats both as a non-match (see `strict-errors`).
+    fn evaluate_cell(
+        input: &DecisionTableInputField,
+        rule_value: &str,
+        isolate: &mut Isolate,
+    ) -> Result<bool, StrictEvaluationError> {
+        let error = |expression: &str, message: String| {
+            StrictEvaluationError::new(
+                StrictErrorSite::DecisionTableInput,
+                &input.id,
+                expression,
+                message,
+            )
+        };
         match &input.field {
-            None => isolate
-                .run_standard(rule_value)
-                .ok()
-                .and_then(|result| result.as_bool())
-                .unwrap_or(false),
+            None => {
+                let result = isolate
+                    .run_standard(rule_value)
+                    .map_err(|err| error(rule_value, err.to_string()))?;
+                result.as_bool().ok_or_else(|| {
+                    error(
+                        rule_value,
+                        format!("expected a boolean, got {}", result.type_name()),
+                    )
+                })
+            }
             Some(field) => {
-                if isolate.set_reference(field).is_err() {
-                    return false;
-                }
-                isolate.run_unary(rule_value).unwrap_or(false)
+                isolate
+                    .set_reference(field)
+                    .map_err(|err| error(field, err.to_string()))?;
+                isolate
+                    .run_unary(rule_value)
+                    .map_err(|err| error(rule_value, err.to_string()))
             }
         }
     }
@@ -239,12 +276,13 @@ impl DecisionTableNodeHandler {
                 continue;
             }
             let pruned = pruner.map(|ix| (ix, row_idx));
-            if !Self::row_matches(&ctx, rule, &mut isolate, pruned) {
+            if !Self::row_matches(&ctx, rule, &mut isolate, pruned).node_context(&ctx)? {
                 continue;
             }
 
             let Some((row_scalars, row_collects)) =
                 Self::evaluate_row_cells(&ctx, rule, &mut isolate, scalars.is_none())
+                    .node_context(&ctx)?
             else {
                 continue;
             };
@@ -294,7 +332,7 @@ impl DecisionTableNodeHandler {
         rule: &HashMap<Arc<str>, Arc<str>>,
         isolate: &mut Isolate,
         pruned: Option<(&TableIndex, usize)>,
-    ) -> bool {
+    ) -> Result<bool, StrictEvaluationError> {
         for (col_idx, input) in ctx.node.inputs.iter().enumerate() {
             if pruned.is_some_and(|(ix, row_idx)| ix.decides(col_idx, row_idx)) {
                 continue;
@@ -306,22 +344,33 @@ impl DecisionTableNodeHandler {
                 continue;
             }
 
-            let passed = match &input.field {
-                None => isolate
-                    .run_standard(rule_value)
-                    .ok()
-                    .and_then(|result| result.as_bool())
-                    .unwrap_or(false),
-                Some(field) => {
-                    isolate.set_reference(field).is_ok()
-                        && isolate.run_unary(rule_value).unwrap_or(false)
-                }
-            };
+            let passed = StrictEvaluationError::or_fallback(
+                Self::evaluate_cell(input, rule_value, isolate),
+                false,
+            )?;
             if !passed {
-                return false;
+                return Ok(false);
             }
         }
-        true
+        Ok(true)
+    }
+
+    /// Norn: evaluates one output cell. Upstream drops the whole row result when an
+    /// output fails; with `strict-errors` the failure aborts the table.
+    fn evaluate_output(
+        output: &zen_types::decision::DecisionTableOutputField,
+        rule_value: &str,
+        isolate: &mut Isolate,
+    ) -> Result<Option<Variable>, StrictEvaluationError> {
+        let result = isolate.run_standard(rule_value).map_err(|err| {
+            StrictEvaluationError::new(
+                StrictErrorSite::DecisionTableOutput,
+                &output.id,
+                rule_value,
+                err,
+            )
+        });
+        StrictEvaluationError::or_fallback(result.map(Some), None)
     }
 
     fn evaluate_row_cells(
@@ -329,7 +378,7 @@ impl DecisionTableNodeHandler {
         rule: &HashMap<Arc<str>, Arc<str>>,
         isolate: &mut Isolate,
         include_scalars: bool,
-    ) -> Option<(Option<Variable>, Vec<(usize, Variable)>)> {
+    ) -> Result<Option<(Option<Variable>, Vec<(usize, Variable)>)>, StrictEvaluationError> {
         let scalars = include_scalars.then(Variable::empty_object);
         let mut collects = Vec::new();
         for (column_idx, output) in ctx.node.outputs.iter().enumerate() {
@@ -344,14 +393,17 @@ impl DecisionTableNodeHandler {
                 continue;
             }
 
-            let value = isolate.run_standard(rule_value).ok()?.deep_clone();
+            let Some(value) = Self::evaluate_output(output, rule_value, isolate)? else {
+                return Ok(None);
+            };
+            let value = value.deep_clone();
             if collect {
                 collects.push((column_idx, value));
             } else if let Some(scalars) = &scalars {
                 scalars.dot_insert(path, value);
             }
         }
-        Some((scalars, collects))
+        Ok(Some((scalars, collects)))
     }
 
     fn row_trace_parts(
@@ -405,9 +457,9 @@ impl DecisionTableNodeHandler {
         rule: &'a HashMap<Arc<str>, Arc<str>>,
         isolate: &mut Isolate,
         pruned: Option<(&TableIndex, usize)>,
-    ) -> Option<RowResult> {
-        if !Self::row_matches(ctx, rule, isolate, pruned) {
-            return None;
+    ) -> Result<Option<RowResult>, StrictEvaluationError> {
+        if !Self::row_matches(ctx, rule, isolate, pruned)? {
+            return Ok(None);
         }
 
         let outputs = Variable::empty_object();
@@ -423,20 +475,22 @@ impl DecisionTableNodeHandler {
                 continue;
             }
 
-            let res = isolate.run_standard(rule_value).ok()?;
+            let Some(res) = Self::evaluate_output(output, rule_value, isolate)? else {
+                return Ok(None);
+            };
             outputs.dot_insert(path, res.deep_clone());
         }
 
         if !ctx.config.trace {
-            return Some(RowResult::Output(outputs));
+            return Ok(Some(RowResult::Output(outputs)));
         }
 
         let (reference_map, expressions) = Self::row_trace_parts(ctx, rule, isolate);
-        Some(RowResult::WithTrace {
+        Ok(Some(RowResult::WithTrace {
             output: outputs.to_variable(),
             reference_map,
             rule: expressions,
-        })
+        }))
     }
 }
 
