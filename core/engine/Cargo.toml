@@ -59,7 +59,11 @@ http = { version = "1.3", optional = true }
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false, optional = true }
 reqsign = { version = "0.20", features = ["aws", "azure", "google", "default-context"], optional = true }
 sha2 = { version = "0.10", optional = true }
-jsonschema = { version = "0.49" }
+# Norn: jsonschema's default features (HTTP + file `$ref` resolvers with reqwest/tokio/TLS)
+# are only enabled by the `schema-resolvers` feature, through the native-only helper
+# crate below. Without it an external `$ref` fails with `SchemaCompileError`.
+jsonschema = { version = "0.49", default-features = false }
+zen-schema-resolvers = { path = "../schema-resolvers", version = "2.0.1", optional = true }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 jsonschema = { version = "0.49", default-features = false }
@@ -76,7 +80,7 @@ name = "engine"
 [features]
 # Norn: upstream behaviour is the default. `--no-default-features` yields the pure
 # evaluator profile (no QuickJS, no tokio, no native HTTP). See NORN.md.
-default = ["js", "http", "regex-deprecated"]
+default = ["js", "http", "schema-resolvers", "regex-deprecated"]
 # Function node (JavaScript/TypeScript) execution via QuickJS. Without it, function
 # nodes fail with `UnsupportedNodeError`.
 js = ["dep:rquickjs", "dep:tokio", "dep:swc_ts_fast_strip"]
@@ -84,6 +88,8 @@ js = ["dep:rquickjs", "dep:tokio", "dep:swc_ts_fast_strip"]
 # module. Implies `js`. A host-provided `HttpHandler` works without it.
 http = ["js", "dep:reqwest", "dep:reqsign", "dep:sha2", "dep:http", "dep:async-trait"]
 # Regex backend for zen-expression / zen-tmpl (exactly as upstream: regex by default).
+# jsonschema's default HTTP/file `$ref` resolvers (native only; upstream behaviour).
+schema-resolvers = ["dep:zen-schema-resolvers"]
 regex-deprecated = ["zen-expression/regex-deprecated", "zen-tmpl/regex-deprecated"]
 regex-lite = ["zen-expression/regex-lite", "zen-tmpl/regex-lite"]
 bindgen = ["js", "rquickjs/bindgen"]

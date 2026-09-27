@@ -117,6 +117,13 @@ where
 
         let validator = validator_cache
             .get_or_insert(hash, schema)
+            // Norn: keep `SchemaCompileError` downcastable from the node error source.
+            .map_err(|err| -> Box<dyn std::error::Error> {
+                match err.downcast::<crate::SchemaCompileError>() {
+                    Ok(typed) => Box::new(typed),
+                    Err(err) => err.into(),
+                }
+            })
             .node_context(self)?;
 
         let guards = Guards::default();
