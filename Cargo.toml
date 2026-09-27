@@ -7,7 +7,10 @@ members = [
 ]
 
 [workspace.dependencies]
-ahash = "0.8"
+# Norn (C7): no default features, so the pure profile has no runtime RNG (getrandom).
+# `no-rng` keeps `Default` for fixed-seed maps; each zen crate's default `runtime-rng`
+# feature restores upstream (OS-seeded) behaviour and takes precedence in ahash.
+ahash = { version = "0.8", default-features = false, features = ["std", "no-rng"] }
 bumpalo = "3"
 chrono = "0.4"
 criterion = "0.5"

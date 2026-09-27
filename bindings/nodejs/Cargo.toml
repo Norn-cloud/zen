@@ -9,7 +9,7 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
-ahash = { workspace = true }
+ahash = { workspace = true, features = ["runtime-rng"] }
 napi = { version = "3", features = ["serde-json", "error_anyhow", "tokio_rt"] }
 napi-sys = "3"
 napi-derive = "3"

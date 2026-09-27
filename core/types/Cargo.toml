@@ -20,7 +20,10 @@ nohash-hasher = { workspace = true }
 indexmap = { version = "2", optional = true }
 
 [features]
-default = []
+default = ["runtime-rng"]
+# Norn (C7, default on = upstream): seed ahash maps from the OS RNG (getrandom). Without
+# it ahash uses fixed seeds, so wasm32-unknown-unknown needs no JS entropy import.
+runtime-rng = ["ahash/runtime-rng"]
 arbitrary_precision = ["serde_json/arbitrary_precision"]
 # Norn semantic patch (default off; see NORN.md): insertion-ordered VariableMap above
 # the small-map threshold, so iteration order never depends on a hash seed.
