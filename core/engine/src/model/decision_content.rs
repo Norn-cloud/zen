@@ -1,6 +1,7 @@
 use crate::decision_graph::schema_dict;
 use crate::loader::DynamicLoader;
 use crate::nodes::decision_table::index::TableIndex;
+#[cfg(feature = "js")]
 use crate::nodes::function::v2::strip::TypeStripper;
 use crate::nodes::validator_cache::ValidatorCache;
 use crate::policy::PolicyDocument;
@@ -8,7 +9,9 @@ use ahash::{HashMap, HashMapExt};
 use serde::{Deserialize, Deserializer, Serialize};
 use std::sync::Arc;
 use zen_expression::{ExpressionKind, Isolate, OpcodeCache};
-use zen_types::decision::{DecisionEdge, DecisionNode, DecisionNodeKind, FunctionNodeContent};
+#[cfg(feature = "js")]
+use zen_types::decision::FunctionNodeContent;
+use zen_types::decision::{DecisionEdge, DecisionNode, DecisionNodeKind};
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(untagged)]
@@ -129,6 +132,7 @@ pub struct PolicyContent(pub Arc<PolicyDocument>);
 
 impl GraphContent {
     pub fn compile(&mut self) {
+        #[cfg(feature = "js")]
         self.compile_functions();
         self.build_dt_indexes();
         if self.compiled_cache.is_some() {
@@ -257,6 +261,7 @@ impl GraphContent {
         Ok(())
     }
 
+    #[cfg(feature = "js")]
     fn compile_functions(&mut self) {
         if self.stripped_functions.is_some() {
             return;
@@ -298,6 +303,7 @@ mod tests {
         assert!(error.contains("output"), "{error}");
     }
 
+    #[cfg(feature = "js")]
     #[test]
     fn compile_strips_function_sources() {
         let json = r#"{"nodes":[{"id":"f","name":"f","type":"functionNode","content":{"source":"export const handler = (input: { age: number }) => ({ total: input.age });"}}],"edges":[]}"#;

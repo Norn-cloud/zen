@@ -4,7 +4,7 @@ use rquickjs::{Ctx, FromJs, IntoJs, Object, Value};
 use std::future::Future;
 use std::pin::Pin;
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(all(feature = "http", not(target_family = "wasm")))]
 pub(crate) mod native;
 
 pub(crate) mod callback;

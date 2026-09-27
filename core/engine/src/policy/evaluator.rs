@@ -1,7 +1,7 @@
+use crate::time::Instant;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
-use std::time::Instant;
 use zen_types::symbol::Symbol;
 
 use ahash::{HashMap, HashMapExt, HashSet, HashSetExt};

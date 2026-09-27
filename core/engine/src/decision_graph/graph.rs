@@ -16,6 +16,7 @@ use crate::nodes::{
     NodeContext, NodeContextBase, NodeContextConfig, NodeDataType, NodeHandler,
     NodeHandlerExtensions, NodeResponse, NodeResult, TraceDataType,
 };
+use crate::time::Instant;
 use crate::{DecisionGraphTrace, DecisionGraphValidationError, EvaluationError};
 use ahash::{HashMap, HashMapExt};
 use petgraph::algo::is_cyclic_directed;
@@ -25,7 +26,6 @@ use serde::{Serialize, Serializer};
 use std::cell::RefCell;
 use std::ops::Deref;
 use std::sync::Arc;
-use std::time::Instant;
 use zen_expression::variable::{ToVariable, Variable};
 use zen_types::decision::{DecisionNode, InputNodeContent, OutputNodeContent};
 

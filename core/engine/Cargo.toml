@@ -25,17 +25,17 @@ once_cell = { workspace = true }
 json_dotpath = { workspace = true }
 rust_decimal = { workspace = true, features = ["maths-nopanic"] }
 fixedbitset = "0.5"
-tokio = { workspace = true, features = ["sync", "time"] }
-rquickjs = { version = "0.10", features = ["macro", "loader", "rust-alloc", "futures", "either", "properties"] }
+tokio = { workspace = true, features = ["sync", "time"], optional = true }
+rquickjs = { version = "0.10", features = ["macro", "loader", "rust-alloc", "futures", "either", "properties"], optional = true }
 zen-types = { path = "../types", version = "2.1.1" }
-zen-expression = { path = "../expression", version = "2.1.1" }
-zen-tmpl = { path = "../template", version = "2.1.1" }
+zen-expression = { path = "../expression", version = "2.1.1", default-features = false }
+zen-tmpl = { path = "../template", version = "2.1.1", default-features = false }
 nohash-hasher = { workspace = true }
 downcast-rs = { version = "2.0", features = ["std", "sync"] }
 arc-swap = "1"
 flate2 = { version = "1", features = ["rust_backend"] }
 zip = { version = "8", default-features = false, features = ["deflate-flate2"] }
-swc_ts_fast_strip = "53.0.0"
+swc_ts_fast_strip = { version = "53.0.0", optional = true }
 swc_common = "23"
 swc_ecma_parser = "41"
 swc_ecma_ast = "25"
@@ -43,29 +43,48 @@ typed-arena = "2"
 self_cell = "1"
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
-criterion = { workspace = true, features = ["async_tokio"] }
 insta = { version = "1.43", features = ["yaml", "redactions"] }
 toml = "0.8"
 mimalloc = "0.1.52"
 
+# Norn: tokio-based test/bench harness is native-only (rt-multi-thread cannot run on
+# wasm anyway); keeps `cargo tree --target wasm32-unknown-unknown` free of tokio.
+[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+criterion = { workspace = true, features = ["async_tokio"] }
+
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-async-trait = { version = "0.1" }
-http = { version = "1.3" }
-reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
-reqsign = { version = "0.20", features = ["aws", "azure", "google", "default-context"] }
-sha2 = { version = "0.10" }
+async-trait = { version = "0.1", optional = true }
+http = { version = "1.3", optional = true }
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false, optional = true }
+reqsign = { version = "0.20", features = ["aws", "azure", "google", "default-context"], optional = true }
+sha2 = { version = "0.10", optional = true }
 jsonschema = { version = "0.49" }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 jsonschema = { version = "0.49", default-features = false }
-rquickjs = { version = "0.10", features = ["macro", "loader", "rust-alloc", "futures", "either", "properties", "bindgen"] }
+rquickjs = { version = "0.10", features = ["macro", "loader", "rust-alloc", "futures", "either", "properties", "bindgen"], optional = true }
+
+# Norn: wasm-safe monotonic clock. std::time::Instant traps on wasm32-unknown-unknown.
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+web-time = "1"
 
 [[bench]]
 harness = false
 name = "engine"
 
 [features]
-default = []
-bindgen = ["rquickjs/bindgen"]
+# Norn: upstream behaviour is the default. `--no-default-features` yields the pure
+# evaluator profile (no QuickJS, no tokio, no native HTTP). See NORN.md.
+default = ["js", "http", "regex-deprecated"]
+# Function node (JavaScript/TypeScript) execution via QuickJS. Without it, function
+# nodes fail with `UnsupportedNodeError`.
+js = ["dep:rquickjs", "dep:tokio", "dep:swc_ts_fast_strip"]
+# Native (non-wasm) HTTP client + cloud request signing for the function-node `http`
+# module. Implies `js`. A host-provided `HttpHandler` works without it.
+http = ["js", "dep:reqwest", "dep:reqsign", "dep:sha2", "dep:http", "dep:async-trait"]
+# Regex backend for zen-expression / zen-tmpl (exactly as upstream: regex by default).
+regex-deprecated = ["zen-expression/regex-deprecated", "zen-tmpl/regex-deprecated"]
+regex-lite = ["zen-expression/regex-lite", "zen-tmpl/regex-lite"]
+bindgen = ["js", "rquickjs/bindgen"]
 arbitrary_precision = ["serde_json/arbitrary_precision", "zen-expression/arbitrary_precision", "zen-types/arbitrary_precision", "zen-tmpl/arbitrary_precision"]
