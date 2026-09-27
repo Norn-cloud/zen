@@ -330,9 +330,12 @@ pub(crate) mod imp {
     use crate::{Variable as V, Variable};
     use anyhow::{anyhow, Context};
     use chrono_tz::Tz;
-    #[cfg(not(feature = "regex-lite"))]
+    // Norn: `regex-lite` wins when enabled (upstream precedence); `regex-deprecated`
+    // selects `regex`; with neither feature, fall back to `regex-lite` so the crate
+    // builds with `default-features = false` instead of failing to compile.
+    #[cfg(all(feature = "regex-deprecated", not(feature = "regex-lite")))]
     use regex::Regex;
-    #[cfg(feature = "regex-lite")]
+    #[cfg(not(all(feature = "regex-deprecated", not(feature = "regex-lite"))))]
     use regex_lite::Regex;
     use rust_decimal::prelude::{FromPrimitive, ToPrimitive};
     use rust_decimal::{Decimal, RoundingStrategy};

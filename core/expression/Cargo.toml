@@ -19,7 +19,8 @@ humantime = { workspace = true }
 fastrand = { workspace = true }
 once_cell = { workspace = true }
 regex = { workspace = true, optional = true }
-regex-lite = { workspace = true, optional = true }
+# Norn: non-optional so `default-features = false` still has a regex backend.
+regex-lite = { workspace = true }
 serde = { workspace = true, features = ["rc", "derive"] }
 serde_json = { workspace = true, features = [] }
 strum = { workspace = true }
@@ -45,7 +46,7 @@ recursive = { workspace = true }
 
 [features]
 default = ["regex-deprecated"]
-regex-lite = ["dep:regex-lite"]
+regex-lite = []
 regex-deprecated = ["dep:regex"]
 arbitrary_precision = ["serde_json/arbitrary_precision", "zen-types/arbitrary_precision"]
 
