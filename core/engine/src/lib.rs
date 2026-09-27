@@ -145,7 +145,8 @@ pub use engine::{
     DecisionEngine, EvaluationOptions, EvaluationSerializedOptions, EvaluationTraceKind,
 };
 pub use error::{
-    CompileFailure, ContentKindError, EvaluationError, SchemaCompileError, UnsupportedNodeError,
+    CompileFailure, ContentKindError, EvaluationError, SchemaCompileError, StrictErrorSite,
+    StrictEvaluationError, UnsupportedNodeError,
 };
 pub use workspace::Workspace;
 pub use zen_expression::Variable;

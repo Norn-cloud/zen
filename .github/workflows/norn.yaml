@@ -75,3 +75,21 @@ jobs:
             echo "::error::tokio or rquickjs present in the --no-default-features wasm32 dependency tree"
             exit 1
           fi
+
+  semantic-features:
+    name: Norn semantic features on (strict-errors)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: norn-semantic
+      - name: upstream + Norn tests, default features plus the semantic patches
+        run: cargo test --workspace --exclude zen-ffi --exclude zen-nodejs --exclude zen-python --features "$NORN_SEMANTIC" --locked
+      - name: pure profile plus the semantic patches
+        run: cargo test -p zen-engine --no-default-features --features "$NORN_SEMANTIC" --lib --test strict_errors --locked
+    env:
+      NORN_SEMANTIC: zen-engine/strict-errors

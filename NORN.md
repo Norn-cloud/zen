@@ -44,6 +44,7 @@ Consumers pin a `norn-v2.0.1-N` **tag** (or its commit), never the moving branch
 | # | Patch | Rationale |
 | --- | --- | --- |
 | S1 | `median([])` returns an `"Empty array"` error, the same as `avg([])` and `mode([])`. Upstream computes `center - 1` on an empty array, which panics in debug builds and wraps in release. | Panic fix. It is observable only for input that used to panic or fail. |
+| S2 | Feature `strict-errors` (default **off**): a decision-table input cell that fails to evaluate or is not a boolean, a failing output cell of a matching row, and a switch condition that fails or is not a boolean abort evaluation with the typed `zen_engine::StrictEvaluationError { site, id, expression, message }` (`site`: `DecisionTableInput` / `DecisionTableOutput` / `SwitchCondition`), delivered as the `source` of `EvaluationError::NodeError`. Upstream (feature off) turns these into a non-match, a dropped row result, or a false condition. Applies to both hit policies, traced and untraced evaluation. Four upstream fixture tests that depend on the fallback are ignored when the feature is on. | Review F4: a failing deny row must not yield a fallback result, and a failing switch branch must not fall through. (norn-v2.0.1-3) |
 
 Planned follow-ups, each tracked as its own issue and not included here: opt-in
 strict evaluation errors (no silent fallback on table/switch errors),
@@ -61,6 +62,7 @@ randomness builtins, and deterministic fuel/metering hooks.
 | `regex-lite` | off | `regex-lite` backend. Takes precedence when enabled. |
 | `bindgen` | off | `rquickjs/bindgen`. Implies `js` and needs libclang. |
 | `arbitrary_precision` | off | unchanged from upstream |
+| `strict-errors` | off | Norn semantic patch S2: typed abort on failing table cells / switch conditions |
 
 The Norn pure profile is `zen-engine = { ..., default-features = false }`. Its
 regex backend is `regex-lite`, either by fallback or by setting `regex-lite`
