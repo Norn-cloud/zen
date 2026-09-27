@@ -46,6 +46,7 @@ Consumers pin a `norn-v2.0.1-N` **tag** (or its commit), never the moving branch
 | S1 | `median([])` returns an `"Empty array"` error, the same as `avg([])` and `mode([])`. Upstream computes `center - 1` on an empty array, which panics in debug builds and wraps in release. | Panic fix. It is observable only for input that used to panic or fail. |
 | S2 | Feature `strict-errors` (default **off**): a decision-table input cell that fails to evaluate or is not a boolean, a failing output cell of a matching row, and a switch condition that fails or is not a boolean abort evaluation with the typed `zen_engine::StrictEvaluationError { site, id, expression, message }` (`site`: `DecisionTableInput` / `DecisionTableOutput` / `SwitchCondition`), delivered as the `source` of `EvaluationError::NodeError`. Upstream (feature off) turns these into a non-match, a dropped row result, or a false condition. Applies to both hit policies, traced and untraced evaluation. Four upstream fixture tests that depend on the fallback are ignored when the feature is on. | Review F4: a failing deny row must not yield a fallback result, and a failing switch branch must not fall through. (norn-v2.0.1-3) |
 | S3 | Feature `deterministic-maps` (default **off**, on `zen-types`; forwarded by `zen-expression` and `zen-engine`): above the 32-key small-map threshold `VariableMap` uses an insertion-ordered `indexmap::IndexMap` (removal is order-preserving `shift_remove`) instead of an ahash `HashMap`. Iteration order is insertion order at every size, so `keys`, `values`, serialization and every other walk are independent of hash seeds. The engine's `$nodes` object is built in graph node order. | Review F1: eight equivalent 40-key inputs produced eight `keys` orders. (norn-v2.0.1-3) |
+| S4 | Feature `metering` (default **off**; on `zen-expression`, forwarded by `zen-engine`): a shared `Meter` (limit + counter) charged by every executed VM opcode (so every closure iteration of `map`/`filter`/`flatMap`/...), by data-proportional builtins and opcodes, and by zen-engine graph node visits and decision-table rows. Running out fails with the typed `BudgetExhausted { limit, used }`: `VMError::BudgetExhausted` in an `Isolate`, `EvaluationError::BudgetExhausted` from `Decision::evaluate_metered`. The meter is sticky, and the graph evaluator checks it after every node, so an exhaustion swallowed inside a node (for example a non-strict table cell) still aborts the evaluation. See "Metering cost model". | Review F3: poll/depth/reset counts do not bound work. (norn-v2.0.1-3) |
 
 Planned follow-ups, each tracked as its own issue and not included here: opt-in
 strict evaluation errors (no silent fallback on table/switch errors),
@@ -65,6 +66,7 @@ randomness builtins, and deterministic fuel/metering hooks.
 | `arbitrary_precision` | off | unchanged from upstream |
 | `strict-errors` | off | Norn semantic patch S2: typed abort on failing table cells / switch conditions |
 | `deterministic-maps` | off | Norn semantic patch S3: insertion-ordered `VariableMap` at every size (`indexmap`). Also on `zen-expression` and `zen-types`. |
+| `metering` | off | Norn semantic patch S4: deterministic operation budget (`zen_engine::meter::Meter`, `Decision::evaluate_metered`). Also on `zen-expression` (`Isolate::set_meter`). |
 
 The Norn pure profile is `zen-engine = { ..., default-features = false }`. Its
 regex backend is `regex-lite`, either by fallback or by setting `regex-lite`
@@ -103,6 +105,41 @@ only advances across I/O, not during synchronous code, so timings measured insid
 the pure evaluator read as roughly zero. Never use these values for deadlines,
 budgets or metering. Use host CPU telemetry and deterministic fuel instead.
 
+## Metering cost model (`metering`)
+
+Units depend only on the decision and its input values, never on time, hash seeds,
+tracing, precompilation or the target. Constants live in `zen_expression::meter::cost`.
+
+| Charge | Units |
+| --- | --- |
+| Every executed VM opcode | 1 |
+| `CallFunction` / `CallMethod` | + shallow size of the arguments (string bytes, array/object length, else 1) |
+| `matches`, `extract` | + 64 (regex compilation) on top of the argument sizes |
+| `fuzzyMatch` | + size(a) x deep size(b) |
+| `mergeDeep` | + deep size of the arguments |
+| `Join`, `Flatten`, `Slice`, `In`, `Equal`, string `Add` | + size of the data they touch |
+| Loop `Begin` (closures) | + array length; an interval `[a..b]` is charged for its length **before** it is materialized |
+| Graph node visit (engine) | 1 |
+| Decision-table row considered (engine) | 1 |
+
+Determinism rules:
+- Charges are computed before an opcode runs, so exhaustion happens before the work.
+- A metered decision-table evaluation does not use the table index. Index pruning
+  skips cells, and whether it applies depends on tracing and `compile()`. Without the
+  index, every row is evaluated in order.
+- Trace-only work (the row reference map in traced tables) is not charged. Total cost
+  is identical with and without `trace` and with and without `compile()` (tested).
+- Parsing/compiling expression source is not charged. It depends on the opcode cache
+  and is bounded at admission.
+- Not metered: `Expression::evaluate*` (a standalone VM; use an `Isolate`), policy
+  documents, function/custom nodes, schema validation, and memory. The budget bounds
+  work, not allocation size.
+
+Pinned counts (`core/expression/tests/metering.rs`, run natively and on
+`wasm32-unknown-unknown` in CI): `flatMap([0..19], map([0..19], # * 2))` costs **3449**
+units; with a budget of 500 it fails at `BudgetExhausted { limit: 500, used: 502 }` on
+both targets.
+
 ## CI (`.github/workflows/norn.yaml`, pinned toolchain)
 
 1. Upstream test suite, native, default features (upstream's binding exclusions).
@@ -115,6 +152,16 @@ budgets or metering. Use host CPU telemetry and deterministic fuel instead.
    `cargo tree -e features --target wasm32-unknown-unknown -p zen-engine --no-default-features`
    must not mention `tokio` or `rquickjs`. Positive controls check that the default
    trees do, so the negative checks cannot pass vacuously.
+4. Semantic features on (`strict-errors`, `deterministic-maps`, `metering`): the
+   upstream suite plus Norn tests with default features, and the Norn tests in the pure
+   profile. Upstream fixture tests that rely on the failing-cell fallback are ignored
+   only under `strict-errors`.
+5. `metering` on `wasm32-unknown-unknown`: `core/expression/tests/metering.rs` runs under
+   `wasm-bindgen-test-runner` (CLI version read from `Cargo.lock`) and must hit the
+   same pinned counts as the native run. zen-expression's `criterion` dev-dependency
+   is native-only for this, and the wasm test build adds `wasm-bindgen-test` and
+   `getrandom/wasm_js` (ahash's RNG; zen-engine already gets the same feature through
+   jsonschema).
 
 ## Rebase / update policy
 

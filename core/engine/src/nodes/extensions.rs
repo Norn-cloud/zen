@@ -30,6 +30,9 @@ pub struct NodeHandlerExtensions {
     #[cfg_attr(not(feature = "js"), allow(dead_code))]
     pub(crate) stripped_functions: Option<Arc<ahash::HashMap<Arc<str>, Arc<str>>>>,
     pub(crate) dt_indexes: Option<Arc<ahash::HashMap<Arc<str>, TableIndex>>>,
+    /// Norn `metering`: shared by every node, isolate and sub-decision of one evaluation.
+    #[cfg(feature = "metering")]
+    pub(crate) meter: Option<zen_expression::meter::Meter>,
 }
 
 impl Default for NodeHandlerExtensions {
@@ -45,6 +48,8 @@ impl Default for NodeHandlerExtensions {
             stripped_functions: None,
             dt_indexes: None,
             http_handler: None,
+            #[cfg(feature = "metering")]
+            meter: None,
         }
     }
 }

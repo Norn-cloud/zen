@@ -65,6 +65,23 @@ impl Isolate {
         self.references.clear();
     }
 
+    /// Norn `metering`: charge everything this isolate runs to `meter` (`None` disables).
+    #[cfg(feature = "metering")]
+    pub fn set_meter(&mut self, meter: Option<crate::meter::Meter>) {
+        self.vm.set_meter(meter);
+    }
+
+    #[cfg(feature = "metering")]
+    pub fn take_meter(&mut self) -> Option<crate::meter::Meter> {
+        self.vm.take_meter()
+    }
+
+    #[cfg(feature = "metering")]
+    pub fn with_meter(mut self, meter: Option<crate::meter::Meter>) -> Self {
+        self.set_meter(meter);
+        self
+    }
+
     pub fn set_cache(&mut self, cache: Arc<OpcodeCache>) {
         self.cache = Some(cache);
     }

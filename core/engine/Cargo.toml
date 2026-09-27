@@ -98,4 +98,7 @@ bindgen = ["js", "rquickjs/bindgen"]
 strict-errors = []
 # Insertion-ordered VariableMap at every size (object/keys/values order independent of hash seeds).
 deterministic-maps = ["zen-expression/deterministic-maps", "zen-types/deterministic-maps"]
+# Deterministic operation budget: VM opcodes, expensive builtins, graph node and table row
+# visits. See `Decision::evaluate_metered` and `EvaluationError::BudgetExhausted`.
+metering = ["zen-expression/metering"]
 arbitrary_precision = ["serde_json/arbitrary_precision", "zen-expression/arbitrary_precision", "zen-types/arbitrary_precision", "zen-tmpl/arbitrary_precision"]
