@@ -219,6 +219,13 @@ impl DecisionTableNodeHandler {
         if ctx.extensions.meter.is_some() {
             return None;
         }
+        // Norn `strict-errors`: the index decides captured cells without evaluating
+        // them, so a cell that would fail on the actual input type (e.g. `in [1, 2]`
+        // on an object) is silently pruned and a fallback row can win. Strict
+        // evaluation therefore evaluates every cell.
+        if cfg!(feature = "strict-errors") {
+            return None;
+        }
         ctx.extensions.dt_indexes.as_ref()?.get(&ctx.id)
     }
 

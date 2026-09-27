@@ -195,3 +195,62 @@ async fn passing_switch_is_unchanged() {
         json!({ "decision": "deny" })
     );
 }
+
+/// An 8+ row table is indexable (`compile()` builds a table index). The index decides
+/// `in [...]` cells without running them, so an object input would be pruned instead of
+/// failing; strict evaluation must still raise the typed error.
+fn indexed_table() -> Decision {
+    let mut rules: Vec<Value> = (0..9)
+        .map(|i| json!({ "_id": format!("r{i}"), "c": format!("in [{}, {}]", 2 * i, 2 * i + 1), "o": "'deny'" }))
+        .collect();
+    rules.push(json!({ "_id": "fallback", "c": "", "o": "'allow'" }));
+    decision(
+        json!([
+            { "id": "in", "name": "in", "type": "inputNode" },
+            { "id": "table", "name": "table", "type": "decisionTableNode", "content": {
+                "hitPolicy": "first",
+                "inputs": [{ "id": "c", "name": "c", "field": "customer", "type": "expression" }],
+                "outputs": [{ "id": "o", "name": "decision", "field": "decision", "type": "expression" }],
+                "rules": rules
+            }},
+            { "id": "out", "name": "out", "type": "outputNode" }
+        ]),
+        json!([
+            edge("e1", "in", "table", None),
+            edge("e2", "table", "out", None)
+        ]),
+    )
+}
+
+#[tokio::test]
+async fn indexed_table_cannot_prune_a_failing_cell_into_a_fallback() {
+    let plain = indexed_table();
+    let mut compiled = indexed_table();
+    compiled.compile();
+    for (name, table) in [("uncompiled", &plain), ("compiled", &compiled)] {
+        for trace in [false, true] {
+            // `customer` is an object: `in [0, 1]` on it is a VM type error.
+            let result = run(table, trace).await;
+            if STRICT {
+                let err = strict_error(result.unwrap_err(), "table");
+                assert_eq!(err.site, StrictErrorSite::DecisionTableInput, "{name}");
+            } else {
+                assert_eq!(
+                    result.unwrap(),
+                    json!({ "decision": "allow" }),
+                    "{name} trace={trace}"
+                );
+            }
+        }
+        // A matching number still hits its row.
+        let ok = table
+            .evaluate(json!({ "customer": 5 }).into())
+            .await
+            .unwrap();
+        assert_eq!(
+            Value::from(ok.result),
+            json!({ "decision": "deny" }),
+            "{name}"
+        );
+    }
+}
