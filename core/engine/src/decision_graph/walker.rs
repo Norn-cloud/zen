@@ -35,6 +35,9 @@ pub(crate) struct GraphWalker {
     /// Norn `strict-errors`: a failed switch condition stops the walk; the graph
     /// evaluator takes it with [`GraphWalker::take_error`] and aborts.
     error: Option<(NodeIndex, StrictEvaluationError)>,
+    /// Norn `metering`: charged by switch conditions.
+    #[cfg(feature = "metering")]
+    pub(crate) meter: Option<zen_expression::meter::Meter>,
 
     nodes_in_context: bool,
 }
@@ -64,6 +67,8 @@ impl GraphWalker {
             node_data: Default::default(),
             visited_switch_nodes: Default::default(),
             error: None,
+            #[cfg(feature = "metering")]
+            meter: None,
             iter: 0,
 
             nodes_in_context: ZEN_CONFIG.nodes_in_context.load(Ordering::Relaxed),
@@ -182,6 +187,8 @@ impl GraphWalker {
                 if !self.visited_switch_nodes.contains(&nid) {
                     let (input, input_trace) = self.incoming_node_data(g, nid);
                     let mut isolate = Isolate::with_environment(input);
+                    #[cfg(feature = "metering")]
+                    isolate.set_meter(self.meter.clone());
                     if let Some(nodes) = self.nodes_context() {
                         isolate.set_local(Variable::nodes_key(), nodes);
                     }

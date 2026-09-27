@@ -77,7 +77,7 @@ jobs:
           fi
 
   semantic-features:
-    name: Norn semantic features on (strict-errors, deterministic-maps)
+    name: Norn semantic features on (strict-errors, deterministic-maps, metering)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -91,7 +91,31 @@ jobs:
         run: cargo test --workspace --exclude zen-ffi --exclude zen-nodejs --exclude zen-python --features "$NORN_SEMANTIC" --locked
       - name: pure profile plus the semantic patches
         run: |
-          cargo test -p zen-engine --no-default-features --features "$NORN_SEMANTIC" --lib --test strict_errors --locked
-          cargo test -p zen-expression --no-default-features --features deterministic-maps --test deterministic_maps --locked
+          cargo test -p zen-engine --no-default-features --features "$NORN_SEMANTIC" --lib --test strict_errors --test metering --locked
+          cargo test -p zen-expression --no-default-features --features deterministic-maps,metering --test deterministic_maps --test metering --locked
     env:
-      NORN_SEMANTIC: zen-engine/strict-errors,zen-engine/deterministic-maps,zen-expression/deterministic-maps
+      NORN_SEMANTIC: zen-engine/strict-errors,zen-engine/deterministic-maps,zen-engine/metering,zen-expression/deterministic-maps,zen-expression/metering
+
+  metering-wasm:
+    name: metering counts on wasm32-unknown-unknown (wasm-bindgen-test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: norn-metering-wasm
+      - name: wasm-bindgen version from Cargo.lock
+        id: wasm-bindgen
+        run: echo "version=$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | awk -F'"' '/^version/ {print $2}')" >> "$GITHUB_OUTPUT"
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen@${{ steps.wasm-bindgen.outputs.version }}
+      # The same pinned unit counts as the native run in `semantic-features`.
+      - name: metering tests on wasm32-unknown-unknown
+        env:
+          CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
+        run: cargo test -p zen-expression --no-default-features --features metering --target wasm32-unknown-unknown --test metering --locked

@@ -16,6 +16,11 @@ pub enum VMError {
 
     #[error("Number conversion error")]
     NumberConversionError,
+
+    /// Norn `metering`: the isolate's [`crate::meter::Meter`] ran out.
+    #[cfg(feature = "metering")]
+    #[error("{0}")]
+    BudgetExhausted(crate::meter::BudgetExhausted),
 }
 
 pub(crate) type VMResult<T> = Result<T, VMError>;

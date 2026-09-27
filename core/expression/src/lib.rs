@@ -59,6 +59,9 @@
 
 mod isolate;
 
+#[cfg(feature = "metering")]
+pub mod meter;
+
 pub mod compiler;
 mod exports;
 pub mod expression;

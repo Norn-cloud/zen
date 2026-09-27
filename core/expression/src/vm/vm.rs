@@ -27,6 +27,8 @@ pub struct LoopScope {
 pub struct VM {
     scopes: Vec<LoopScope>,
     stack: Vec<Variable>,
+    #[cfg(feature = "metering")]
+    meter: Option<crate::meter::Meter>,
 }
 
 impl VM {
@@ -34,14 +36,33 @@ impl VM {
         Self {
             scopes: Default::default(),
             stack: Default::default(),
+            #[cfg(feature = "metering")]
+            meter: None,
         }
+    }
+
+    /// Norn `metering`: charge every run of this VM to `meter`.
+    #[cfg(feature = "metering")]
+    pub fn set_meter(&mut self, meter: Option<crate::meter::Meter>) {
+        self.meter = meter;
+    }
+
+    #[cfg(feature = "metering")]
+    pub fn take_meter(&mut self) -> Option<crate::meter::Meter> {
+        self.meter.take()
     }
 
     pub fn run(&mut self, bytecode: &[Opcode], scope: &Scope) -> VMResult<Variable> {
         self.stack.clear();
         self.scopes.clear();
 
-        let s = VMInner::new(bytecode, &mut self.stack, &mut self.scopes).run(scope);
+        #[allow(unused_mut)]
+        let mut inner = VMInner::new(bytecode, &mut self.stack, &mut self.scopes);
+        #[cfg(feature = "metering")]
+        {
+            inner.meter = self.meter.as_ref();
+        }
+        let s = inner.run(scope);
         Ok(s?)
     }
 }
@@ -51,6 +72,8 @@ struct VMInner<'parent_ref, 'bytecode_ref> {
     stack: &'parent_ref mut Vec<Variable>,
     bytecode: &'bytecode_ref [Opcode],
     ip: u32,
+    #[cfg(feature = "metering")]
+    meter: Option<&'parent_ref crate::meter::Meter>,
 }
 
 impl<'arena, 'parent_ref, 'bytecode_ref> VMInner<'parent_ref, 'bytecode_ref> {
@@ -64,6 +87,8 @@ impl<'arena, 'parent_ref, 'bytecode_ref> VMInner<'parent_ref, 'bytecode_ref> {
             scopes,
             stack,
             bytecode,
+            #[cfg(feature = "metering")]
+            meter: None,
         }
     }
 
@@ -94,6 +119,9 @@ impl<'arena, 'parent_ref, 'bytecode_ref> VMInner<'parent_ref, 'bytecode_ref> {
                 })?;
 
             self.ip += 1;
+
+            #[cfg(feature = "metering")]
+            self.charge(op)?;
 
             match op {
                 Opcode::PushNull => self.push(Null),
@@ -1018,5 +1046,83 @@ impl<'arena, 'parent_ref, 'bytecode_ref> VMInner<'parent_ref, 'bytecode_ref> {
         }
 
         self.pop()
+    }
+}
+
+/// Norn `metering`: charges are computed from the stack *before* an opcode runs, so
+/// data-proportional work is paid for before it happens.
+#[cfg(feature = "metering")]
+impl VMInner<'_, '_> {
+    fn charge(&self, op: &Opcode) -> VMResult<()> {
+        let Some(meter) = self.meter else {
+            return Ok(());
+        };
+
+        let units = crate::meter::cost::OPCODE.saturating_add(self.data_cost(op));
+        meter
+            .charge(units)
+            .map_err(crate::vm::VMError::BudgetExhausted)
+    }
+
+    /// `n`-th value from the top of the stack (0 = top).
+    fn peek(&self, n: usize) -> Option<&Variable> {
+        self.stack.iter().rev().nth(n)
+    }
+
+    fn data_cost(&self, op: &Opcode) -> u64 {
+        use crate::functions::{FunctionKind, InternalFunction as F};
+        use crate::meter::cost::{deep_size, size, REGEX_COMPILE};
+
+        let size_of = |n: usize| self.peek(n).map(size).unwrap_or(0);
+        let sum = |values: &[Variable], f: fn(&Variable) -> u64| {
+            values.iter().fold(0u64, |acc, v| acc.saturating_add(f(v)))
+        };
+
+        match op {
+            // Data-proportional opcodes.
+            Opcode::Join => self.peek(1).map(deep_size).unwrap_or(0),
+            Opcode::Flatten => match self.peek(0) {
+                Some(Array(a)) => sum(&a.borrow(), size),
+                _ => 0,
+            },
+            Opcode::Slice => size_of(2),
+            Opcode::In | Opcode::Equal => size_of(0).saturating_add(size_of(1)),
+            Opcode::Add => match (self.peek(1), self.peek(0)) {
+                (Some(String(_)), _) | (_, Some(String(_))) => {
+                    size_of(0).saturating_add(size_of(1))
+                }
+                _ => 0,
+            },
+            // Loop setup: an interval is charged for its length before it is materialized.
+            Opcode::Begin => match self.peek(0) {
+                Some(Array(a)) => a.borrow().len() as u64,
+                Some(var) => var
+                    .dynamic::<VmInterval>()
+                    .and_then(|i| i.array_len())
+                    .unwrap_or(0),
+                None => 0,
+            },
+            Opcode::CallFunction { kind, arg_count } => {
+                let start = self.stack.len().saturating_sub(*arg_count as usize);
+                let args = &self.stack[start..];
+                match kind {
+                    FunctionKind::Internal(F::Matches | F::Extract) => {
+                        REGEX_COMPILE.saturating_add(sum(args, size))
+                    }
+                    FunctionKind::Internal(F::FuzzyMatch) => args
+                        .first()
+                        .map(size)
+                        .unwrap_or(0)
+                        .saturating_mul(args.get(1).map(deep_size).unwrap_or(0)),
+                    FunctionKind::Internal(F::MergeDeep) => sum(args, deep_size),
+                    _ => sum(args, size),
+                }
+            }
+            Opcode::CallMethod { arg_count, .. } => {
+                let start = self.stack.len().saturating_sub(*arg_count as usize + 1);
+                sum(&self.stack[start..], size)
+            }
+            _ => 0,
+        }
     }
 }

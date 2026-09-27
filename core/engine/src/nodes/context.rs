@@ -236,6 +236,8 @@ pub(crate) fn make_isolate(
     if let Some(nodes) = nodes {
         isolate.set_local(Variable::nodes_key(), nodes.clone());
     }
+    #[cfg(feature = "metering")]
+    isolate.set_meter(extensions.meter.clone());
 
     isolate
 }
