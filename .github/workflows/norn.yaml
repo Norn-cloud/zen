@@ -1,0 +1,63 @@
+# Norn fork gates (see NORN.md). Upstream workflows are left untouched.
+name: Norn
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches: ['norn/**']
+    tags: ['norn-v*']
+  pull_request:
+  workflow_dispatch:
+
+env:
+  RUST_BACKTRACE: 1
+  CARGO_TERM_COLOR: always
+  # Pinned toolchain; bump deliberately together with a new norn-v* tag.
+  RUST_TOOLCHAIN: '1.98.0'
+
+concurrency:
+  group: norn-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-default:
+    name: upstream tests (native, default features)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: norn-native
+      # Same exclusions as upstream rust.yaml (language bindings are built by their own workflows).
+      - run: cargo test --workspace --exclude zen-ffi --exclude zen-nodejs --exclude zen-python --locked
+
+  pure-profile:
+    name: pure profile (no-default-features; native + wasm32-unknown-unknown)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: norn-pure
+      - name: native unit tests without js/http
+        run: cargo test -p zen-engine --no-default-features --lib --locked
+      - name: build for wasm32-unknown-unknown (no libclang required)
+        run: cargo build -p zen-engine --no-default-features --target wasm32-unknown-unknown --release --locked
+      - name: assert tokio / rquickjs are absent from the pure wasm tree
+        run: |
+          set -euo pipefail
+          # Positive control: the default tree must contain them, so the negative check is not vacuous.
+          cargo tree -e features --target wasm32-unknown-unknown -p zen-engine --locked | grep -qiE 'tokio|rquickjs'
+          if cargo tree -e features --target wasm32-unknown-unknown -p zen-engine --no-default-features --locked | grep -iE 'tokio|rquickjs'; then
+            echo "::error::tokio or rquickjs present in the --no-default-features wasm32 dependency tree"
+            exit 1
+          fi
