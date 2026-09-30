@@ -2,7 +2,7 @@
 name = "zen-schema-resolvers"
 description = "Norn fork: enables jsonschema's default HTTP/file $ref resolvers for zen-engine (native only)"
 license = "MIT"
-version = "2.0.1"
+version = "2.1.1"
 edition = "2021"
 repository = "https://github.com/Norn-cloud/zen.git"
 

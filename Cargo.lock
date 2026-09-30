@@ -6200,7 +6200,7 @@ dependencies = [
 
 [[package]]
 name = "zen-schema-resolvers"
-version = "2.0.1"
+version = "2.1.1"
 dependencies = [
  "jsonschema",
 ]
