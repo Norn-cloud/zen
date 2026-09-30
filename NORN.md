@@ -75,7 +75,8 @@ lists the full downstream delta.
 | `norn-v2.0.1-2` | `1e6c6bd2ec36df15cc31680bda513dcb4cce6d5c` | C6 (`schema-resolvers`, typed `SchemaCompileError`), native pure-tree CI check, regex-backend difference tests plus the pure-regex CI job (review fixes on -1) |
 | `norn-v2.0.1-3` | `526980cc0c8a6f8eb2f59f46f1eee763740fdf53` | Semantic series S2 `strict-errors` (#2), S3 `deterministic-maps` (#3), S4 `metering` (#4), all default off, with CI covering them on and off and on wasm32-unknown-unknown (T3-ZEN-1, Norn-cloud/norn-platform#2768) |
 | `norn-v2.0.1-4` | `0b5aeaacff901ada6e6ef102eaa109520ded233d` | Fixes from the gpt-6-sol review of -1..-3: strict evaluation skips the table index; transform loops are metered; `flatten`/`merge`/deep builtins are charged by the data they traverse (bounded walk); sub-decision errors stay in the source chain; CI builds the zen-engine Norn profile for wasm32 |
-| `norn-v2.0.1-5` | head of Norn-cloud/zen#6 (rebase-merged) | Measuring `flatten`/`merge`/`Flatten` costs is bounded by the remaining budget (outer length first, early stop, clamp); `Meter::scan_steps` diagnostic (gpt-6-sol round-2 review of -4) |
+| `norn-v2.0.1-5` | `1d1aca0e5f30538ef9111f64a9ccf5b8f897b7ad` (head of Norn-cloud/zen#6, rebase-merged) | Measuring `flatten`/`merge`/`Flatten` costs is bounded by the remaining budget (outer length first, early stop, clamp); `Meter::scan_steps` diagnostic (gpt-6-sol round-2 review of -4) |
+| `norn-v2.0.1-6` | `b50f240c1d125b9445895040d75031f50ffe9380` | C7: `ahash` without default features, plus a `runtime-rng` feature (default on) on zen-types/zen-expression/zen-tmpl/zen-engine, so the zen-expression Norn profile builds for wasm32 with no getrandom (Norn-cloud/zen#7) |
 
 ## Feature matrix (`zen-engine`)
 
@@ -206,8 +207,17 @@ both targets.
 - Every change consumers can pick up gets a new immutable tag `norn-vX.Y.Z-N`, with
   N incremented per release on the same base (`norn-v2.0.1-1`, `norn-v2.0.1-2`, …).
   Nothing is updated silently.
-- Review upstream releases and advisories monthly. Apply security fixes promptly,
-  out of cycle.
+- Cadence (D32): **watch** upstream releases and advisories weekly (automated in
+  norn-platform by `.github/workflows/zen-upstream-watch.yml`, which keeps one
+  tracking issue); **rehearse** a rebase onto each new stable upstream release
+  monthly on a `norn/rehearsal-<version>` branch with this CI; apply **security
+  fixes promptly**, out of cycle, as their own commit plus a new tag.
+- Every accepted update is a new immutable tag *and* a new engine/profile identity
+  on the Norn side: the consumer pin (`crates/norn-skeleton-guard/zen-pin.json` in
+  norn-platform) names the exact tag and commit, and Norn's guard and
+  dependency-tree gate reject anything else. The full runbook (rehearsal steps,
+  security fast path, new-tag checklist, hard-fork triggers) is in
+  [zen-fork-ledger.md](https://github.com/Norn-cloud/norn-platform/blob/main/knowledge/architecture/build-plan-2026-09-09/zen-fork-ledger.md#maintenance-runbook).
 - A new upstream major version, or any semantic patch, requires a fresh
   qualification decision on the Norn side before consumers move.
 - Keep compatibility patches and semantic patches in separate commits so either
