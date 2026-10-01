@@ -7,7 +7,22 @@ pub(crate) mod function;
 mod nl;
 mod queries;
 mod schema;
+#[cfg(feature = "ts-types")]
 mod ts_type;
+/// Norn (C9): without `ts-types` no TypeScript declaration is parsed; every declared
+/// function type stays unresolved.
+#[cfg(not(feature = "ts-types"))]
+mod ts_type {
+    use zen_expression::variable::VariableType;
+
+    pub(crate) struct TsTypeParser;
+
+    impl TsTypeParser {
+        pub(crate) fn variable_type(_source: &str) -> Option<VariableType> {
+            None
+        }
+    }
+}
 
 pub use analysis::{GraphAnalysis, GraphNodeAnalysis, GraphSignature};
 pub use enhance::GraphTraceMap;

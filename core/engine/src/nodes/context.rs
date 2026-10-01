@@ -3,18 +3,25 @@ use crate::nodes::extensions::NodeHandlerExtensions;
 #[cfg(feature = "js")]
 use crate::nodes::function::v2::function::Function;
 use crate::nodes::result::{NodeResponse, NodeResult};
+#[cfg(feature = "json-schema")]
 use crate::nodes::variable_json::{Guards, VariableNode};
 use crate::nodes::NodeError;
 use crate::ZEN_CONFIG;
+#[cfg(feature = "json-schema")]
 use ahash::AHasher;
+#[cfg(feature = "json-schema")]
 use jsonschema::ValidationError;
+#[cfg(feature = "json-schema")]
 use serde::Serialize;
 use serde_json::Value;
 use std::cell::RefCell;
+#[cfg(feature = "json-schema")]
 use std::fmt::{Display, Formatter};
+#[cfg(feature = "json-schema")]
 use std::hash::Hasher;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
+#[cfg(feature = "json-schema")]
 use thiserror::Error;
 use zen_expression::Isolate;
 use zen_types::variable::{ToVariable, Variable};
@@ -111,6 +118,7 @@ where
         self.extensions.function_runtime().await.node_context(self)
     }
 
+    #[cfg(feature = "json-schema")]
     pub fn validate(&self, schema: &Value, value: &Variable) -> Result<(), NodeError> {
         let validator_cache = self.extensions.validator_cache();
         let hash = self.hash_node();
@@ -135,6 +143,17 @@ where
         Ok(())
     }
 
+    /// Norn (C8): without the `json-schema` feature a node schema is never silently
+    /// skipped; validation fails closed with a typed [`crate::SchemaCompileError`].
+    #[cfg(not(feature = "json-schema"))]
+    pub fn validate(&self, _schema: &Value, _value: &Variable) -> Result<(), NodeError> {
+        Err(self.make_error(crate::SchemaCompileError {
+            message: "JSON Schema validation is not supported in this build (enable the `json-schema` feature of zen-engine)".to_owned(),
+            unresolved_reference: false,
+        }))
+    }
+
+    #[cfg(feature = "json-schema")]
     fn hash_node(&self) -> u64 {
         let mut hasher = AHasher::default();
         hasher.write(self.id.as_bytes());
@@ -345,6 +364,7 @@ impl<T> NodeContextExt<T, NodeContextBase> for Option<T> {
     }
 }
 
+#[cfg(feature = "json-schema")]
 #[derive(Debug, Serialize, Error)]
 #[serde(rename_all = "camelCase")]
 struct ValidationErrorJson {
@@ -352,12 +372,14 @@ struct ValidationErrorJson {
     message: String,
 }
 
+#[cfg(feature = "json-schema")]
 impl Display for ValidationErrorJson {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}: {}", self.path, self.message)
     }
 }
 
+#[cfg(feature = "json-schema")]
 impl<'a> From<ValidationError<'a>> for ValidationErrorJson {
     fn from(value: ValidationError<'a>) -> Self {
         ValidationErrorJson {
