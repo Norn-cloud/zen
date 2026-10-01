@@ -145,7 +145,7 @@ jobs:
           fi
       # C8: jsonschema enables getrandom `wasm_js` on wasm32; the Norn profile (no
       # `json-schema`) has neither. Positive control: `json-schema` brings both back.
-      - name: assert getrandom / jsonschema are absent from the Norn profile wasm tree (C8)
+      - name: assert getrandom / jsonschema / swc / smartstring are absent from the Norn profile trees (C8, C9)
         run: |
           set -euo pipefail
           profile=strict-errors,deterministic-maps,metering,regex-lite
@@ -153,7 +153,16 @@ jobs:
           for crate in getrandom jsonschema; do
             grep -qE "(^|[^A-Za-z0-9_-])${crate} v[0-9]" <<<"$with_schema" || { echo "::error::positive control: ${crate} missing with json-schema"; exit 1; }
           done
-          if cargo tree -e normal --target wasm32-unknown-unknown -p zen-engine --no-default-features --features "${profile}" --locked | grep -E '(^|[^A-Za-z0-9_-])(getrandom|jsonschema) v[0-9]'; then
-            echo "::error::getrandom or jsonschema present in the Norn profile wasm32 tree"
+          # C9: positive control, ts-types brings the swc parser and smartstring back.
+          with_ts="$(cargo tree -e normal --target wasm32-unknown-unknown -p zen-engine --no-default-features --features "${profile},ts-types" --locked)"
+          for crate in swc_ecma_parser smartstring; do
+            grep -qE "(^|[^A-Za-z0-9_-])${crate} v[0-9]" <<<"$with_ts" || { echo "::error::positive control: ${crate} missing with ts-types"; exit 1; }
+          done
+          if cargo tree -e normal --target wasm32-unknown-unknown -p zen-engine --no-default-features --features "${profile}" --locked | grep -E '(^|[^A-Za-z0-9_-])(getrandom|jsonschema|swc_[a-z_]+|smartstring) v[0-9]'; then
+            echo "::error::getrandom, jsonschema, swc or smartstring present in the Norn profile wasm32 tree"
+            exit 1
+          fi
+          if cargo tree -e normal --target x86_64-unknown-linux-gnu -p zen-engine --no-default-features --features "${profile}" --locked | grep -E '(^|[^A-Za-z0-9_-])(jsonschema|swc_[a-z_]+|smartstring) v[0-9]'; then
+            echo "::error::jsonschema, swc or smartstring present in the Norn profile native tree"
             exit 1
           fi
