@@ -149,20 +149,26 @@ jobs:
         run: |
           set -euo pipefail
           profile=strict-errors,deterministic-maps,metering,regex-lite
+          has() { grep -qE "(^|[^A-Za-z0-9_-])($1) v[0-9]" <<<"$2"; }
+          # Each tree is a checked assignment, so a cargo tree failure fails the step.
           with_schema="$(cargo tree -e normal --target wasm32-unknown-unknown -p zen-engine --no-default-features --features "${profile},json-schema" --locked)"
-          for crate in getrandom jsonschema; do
-            grep -qE "(^|[^A-Za-z0-9_-])${crate} v[0-9]" <<<"$with_schema" || { echo "::error::positive control: ${crate} missing with json-schema"; exit 1; }
-          done
-          # C9: positive control, ts-types brings the swc parser and smartstring back.
           with_ts="$(cargo tree -e normal --target wasm32-unknown-unknown -p zen-engine --no-default-features --features "${profile},ts-types" --locked)"
-          for crate in swc_ecma_parser smartstring; do
-            grep -qE "(^|[^A-Za-z0-9_-])${crate} v[0-9]" <<<"$with_ts" || { echo "::error::positive control: ${crate} missing with ts-types"; exit 1; }
+          wasm="$(cargo tree -e normal --target wasm32-unknown-unknown -p zen-engine --no-default-features --features "${profile}" --locked)"
+          native="$(cargo tree -e normal --target x86_64-unknown-linux-gnu -p zen-engine --no-default-features --features "${profile}" --locked)"
+          # Positive controls: json-schema brings jsonschema + getrandom back, ts-types swc + smartstring.
+          for crate in getrandom jsonschema; do
+            has "${crate}" "$with_schema" || { echo "::error::positive control: ${crate} missing with json-schema"; exit 1; }
           done
-          if cargo tree -e normal --target wasm32-unknown-unknown -p zen-engine --no-default-features --features "${profile}" --locked | grep -E '(^|[^A-Za-z0-9_-])(getrandom|jsonschema|swc_[a-z_]+|smartstring) v[0-9]'; then
+          for crate in swc_ecma_parser smartstring; do
+            has "${crate}" "$with_ts" || { echo "::error::positive control: ${crate} missing with ts-types"; exit 1; }
+          done
+          # The profile trees must be non-empty and contain zen-engine itself.
+          has zen-engine "$wasm" && has zen-engine "$native" || { echo "::error::empty Norn profile tree"; exit 1; }
+          if has 'getrandom|jsonschema|swc_[a-z_]+|smartstring' "$wasm"; then
             echo "::error::getrandom, jsonschema, swc or smartstring present in the Norn profile wasm32 tree"
             exit 1
           fi
-          if cargo tree -e normal --target x86_64-unknown-linux-gnu -p zen-engine --no-default-features --features "${profile}" --locked | grep -E '(^|[^A-Za-z0-9_-])(jsonschema|swc_[a-z_]+|smartstring) v[0-9]'; then
+          if has 'jsonschema|swc_[a-z_]+|smartstring' "$native"; then
             echo "::error::jsonschema, swc or smartstring present in the Norn profile native tree"
             exit 1
           fi

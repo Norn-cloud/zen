@@ -120,6 +120,11 @@ impl DecisionGraph {
         let Some(schema) = schema else {
             return Ok(None);
         };
+        // Norn (C8): without `json-schema` skip dictionary resolution (and its loader
+        // calls) so the node handler's typed `SchemaCompileError` is the only outcome.
+        if cfg!(not(feature = "json-schema")) {
+            return Ok(None);
+        }
         if let Some(resolved) = &self.config.content.resolved_schemas {
             return Ok(resolved.get(node_id).cloned());
         }

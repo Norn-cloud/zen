@@ -160,6 +160,81 @@ mod tests_without_json_schema {
         }
     }
 
+    fn assert_schema_error(err: &EvaluationError) {
+        let mut cause: Option<&(dyn std::error::Error + 'static)> = Some(err);
+        while let Some(current) = cause {
+            if let Some(typed) = current.downcast_ref::<SchemaCompileError>() {
+                assert!(!typed.unresolved_reference, "{typed:?}");
+                return;
+            }
+            cause = current.source();
+        }
+        panic!("no SchemaCompileError in the source chain of {err:?}");
+    }
+
+    #[tokio::test]
+    async fn dictionary_schema_fails_closed_without_loading() {
+        let schema = json!({ "type": "object", "properties": { "a": { "$dictionary": "missing" } } })
+            .to_string();
+        for node in ["inputNode", "outputNode"] {
+            let content = json!({ "schema": schema });
+            let (input, output) = if node == "inputNode" {
+                (content, json!({}))
+            } else {
+                (json!({}), content)
+            };
+            let graph = json!({
+                "nodes": [
+                    { "id": "in", "name": "in", "type": "inputNode", "content": input },
+                    { "id": "out", "name": "out", "type": "outputNode", "content": output }
+                ],
+                "edges": [{ "id": "e1", "sourceId": "in", "targetId": "out", "type": "edge" }],
+                "imports": ["missing-policy"]
+            });
+            let content: GraphContent = serde_json::from_value(graph).unwrap();
+            let err = Decision::from(content)
+                .evaluate(json!({ "a": 1 }).into())
+                .await
+                .unwrap_err();
+            assert_schema_error(&err);
+        }
+    }
+
+    #[tokio::test]
+    async fn sub_decision_schema_fails_closed() {
+        use crate::loader::MemoryLoader;
+        use std::sync::Arc;
+
+        let schema = json!({ "type": "object" }).to_string();
+        let sub = json!({
+            "nodes": [
+                { "id": "in", "name": "in", "type": "inputNode" },
+                { "id": "out", "name": "out", "type": "outputNode", "content": { "schema": schema } }
+            ],
+            "edges": [{ "id": "e1", "sourceId": "in", "targetId": "out", "type": "edge" }]
+        });
+        let root = json!({
+            "nodes": [
+                { "id": "in", "name": "in", "type": "inputNode" },
+                { "id": "call", "name": "call", "type": "decisionNode", "content": { "key": "sub" } },
+                { "id": "out", "name": "out", "type": "outputNode" }
+            ],
+            "edges": [
+                { "id": "e1", "sourceId": "in", "targetId": "call", "type": "edge" },
+                { "id": "e2", "sourceId": "call", "targetId": "out", "type": "edge" }
+            ]
+        });
+        let loader = MemoryLoader::default();
+        loader.add("sub", serde_json::from_value::<GraphContent>(sub).unwrap());
+        let content: GraphContent = serde_json::from_value(root).unwrap();
+        let err = Decision::from(content)
+            .with_loader(Arc::new(loader))
+            .evaluate(json!({ "a": 1 }).into())
+            .await
+            .unwrap_err();
+        assert_schema_error(&err);
+    }
+
     #[tokio::test]
     async fn graph_without_schema_still_evaluates() {
         let graph = json!({

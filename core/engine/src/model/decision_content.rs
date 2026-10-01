@@ -227,6 +227,11 @@ impl GraphContent {
     }
 
     pub async fn resolve_schemas(&mut self, loader: &DynamicLoader) -> Result<(), String> {
+        // Norn (C8): without `json-schema` no schema is resolved (no dictionary or import
+        // loads); a declared node schema fails closed in `NodeContext::validate`.
+        if cfg!(not(feature = "json-schema")) {
+            return Ok(());
+        }
         if self.resolved_schemas.is_some() {
             return Ok(());
         }
