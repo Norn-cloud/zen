@@ -11,6 +11,7 @@ pub mod output;
 mod result;
 pub(crate) mod transform_attributes;
 pub(crate) mod validator_cache;
+#[cfg(feature = "json-schema")]
 pub mod variable_json;
 
 pub use context::{NodeContext, NodeContextBase, NodeContextConfig, NodeContextExt};

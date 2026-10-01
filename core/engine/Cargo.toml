@@ -62,11 +62,12 @@ sha2 = { version = "0.10", optional = true }
 # Norn: jsonschema's default features (HTTP + file `$ref` resolvers with reqwest/tokio/TLS)
 # are only enabled by the `schema-resolvers` feature, through the native-only helper
 # crate below. Without it an external `$ref` fails with `SchemaCompileError`.
-jsonschema = { version = "0.49", default-features = false }
+jsonschema = { version = "0.49", default-features = false, optional = true }
 zen-schema-resolvers = { path = "../schema-resolvers", version = "2.0.1", optional = true }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
-jsonschema = { version = "0.49", default-features = false }
+# Norn (C8): optional behind `json-schema`. On wasm32 jsonschema enables getrandom `wasm_js`.
+jsonschema = { version = "0.49", default-features = false, optional = true }
 rquickjs = { version = "0.10", features = ["macro", "loader", "rust-alloc", "futures", "either", "properties", "bindgen"], optional = true }
 
 # Norn: wasm-safe monotonic clock. std::time::Instant traps on wasm32-unknown-unknown.
@@ -80,7 +81,7 @@ name = "engine"
 [features]
 # Norn: upstream behaviour is the default. `--no-default-features` yields the pure
 # evaluator profile (no QuickJS, no tokio, no native HTTP). See NORN.md.
-default = ["js", "http", "schema-resolvers", "regex-deprecated", "runtime-rng"]
+default = ["js", "http", "json-schema", "schema-resolvers", "regex-deprecated", "runtime-rng"]
 # Norn (C7): seed ahash maps from the OS RNG (upstream behaviour). See zen-types `runtime-rng`.
 runtime-rng = ["ahash/runtime-rng", "zen-types/runtime-rng", "zen-expression/runtime-rng", "zen-tmpl/runtime-rng"]
 # Function node (JavaScript/TypeScript) execution via QuickJS. Without it, function
@@ -91,7 +92,12 @@ js = ["dep:rquickjs", "dep:tokio", "dep:swc_ts_fast_strip"]
 http = ["js", "dep:reqwest", "dep:reqsign", "dep:sha2", "dep:http", "dep:async-trait"]
 # Regex backend for zen-expression / zen-tmpl (exactly as upstream: regex by default).
 # jsonschema's default HTTP/file `$ref` resolvers (native only; upstream behaviour).
-schema-resolvers = ["dep:zen-schema-resolvers"]
+schema-resolvers = ["json-schema", "dep:zen-schema-resolvers"]
+# Norn (C8): JSON Schema validation of input/output node `schema` (jsonschema, Draft 7;
+# upstream behaviour, default on). Without it a node that declares a schema fails with
+# the typed `SchemaCompileError { unresolved_reference: false, .. }` instead of being
+# validated, and the dependency tree has no jsonschema (on wasm32: no getrandom).
+json-schema = ["dep:jsonschema"]
 regex-deprecated = ["zen-expression/regex-deprecated", "zen-tmpl/regex-deprecated"]
 regex-lite = ["zen-expression/regex-lite", "zen-tmpl/regex-lite"]
 bindgen = ["js", "rquickjs/bindgen"]

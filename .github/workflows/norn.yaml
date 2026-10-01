@@ -48,8 +48,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: norn-pure
-      - name: native unit tests without js/http/schema-resolvers
+      - name: native unit tests without js/http/schema-resolvers/json-schema
         run: cargo test -p zen-engine --no-default-features --lib --locked
+      - name: native unit tests with json-schema but without schema-resolvers (C6 typed $ref errors)
+        run: cargo test -p zen-engine --no-default-features --features json-schema --lib --locked
       - name: expression integration tests with the pure regex backend (regex-lite)
         run: cargo test -p zen-expression --no-default-features --tests --locked
       - name: assert reqwest / tokio / rquickjs are absent from the pure native tree
@@ -139,5 +141,19 @@ jobs:
           set -euo pipefail
           if cargo tree -e normal --target wasm32-unknown-unknown -p zen-engine --no-default-features --features strict-errors,deterministic-maps,metering --locked | grep -E '(^|[^A-Za-z0-9_-])(tokio|rquickjs|reqwest) v[0-9]'; then
             echo "::error::runtime dependency in the Norn profile wasm32 tree"
+            exit 1
+          fi
+      # C8: jsonschema enables getrandom `wasm_js` on wasm32; the Norn profile (no
+      # `json-schema`) has neither. Positive control: `json-schema` brings both back.
+      - name: assert getrandom / jsonschema are absent from the Norn profile wasm tree (C8)
+        run: |
+          set -euo pipefail
+          profile=strict-errors,deterministic-maps,metering,regex-lite
+          with_schema="$(cargo tree -e normal --target wasm32-unknown-unknown -p zen-engine --no-default-features --features "${profile},json-schema" --locked)"
+          for crate in getrandom jsonschema; do
+            grep -qE "(^|[^A-Za-z0-9_-])${crate} v[0-9]" <<<"$with_schema" || { echo "::error::positive control: ${crate} missing with json-schema"; exit 1; }
+          done
+          if cargo tree -e normal --target wasm32-unknown-unknown -p zen-engine --no-default-features --features "${profile}" --locked | grep -E '(^|[^A-Za-z0-9_-])(getrandom|jsonschema) v[0-9]'; then
+            echo "::error::getrandom or jsonschema present in the Norn profile wasm32 tree"
             exit 1
           fi
