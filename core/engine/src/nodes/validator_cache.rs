@@ -174,8 +174,8 @@ mod tests_without_json_schema {
 
     #[tokio::test]
     async fn dictionary_schema_fails_closed_without_loading() {
-        let schema = json!({ "type": "object", "properties": { "a": { "$dictionary": "missing" } } })
-            .to_string();
+        let dictionary = json!({ "$dictionary": "missing" });
+        let schema = json!({ "type": "object", "properties": { "a": dictionary } }).to_string();
         for node in ["inputNode", "outputNode"] {
             let content = json!({ "schema": schema });
             let (input, output) = if node == "inputNode" {
