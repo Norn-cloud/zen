@@ -128,6 +128,7 @@ lists the full downstream delta.
 | `norn-v2.0.1-5` | head of Norn-cloud/zen#6 (rebase-merged) | Measuring `flatten`/`merge`/`Flatten` costs is bounded by the remaining budget (outer length first, early stop, clamp); `Meter::scan_steps` diagnostic (gpt-6-sol round-2 review of -4) |
 | `norn-v2.0.1-6` | `b50f240c1d125b9445895040d75031f50ffe9380` | C7 (`runtime-rng`; fixed ahash seeds in the pure profile so zen-expression builds for wasm32 without getrandom) |
 | `norn-v2.0.1-7` | head of the C8/C9 PR | C8 (`json-schema`; the zen-engine Norn profile has no jsonschema and no getrandom on wasm32) and C9 (`ts-types`; no swc parser or MPL-2.0 smartstring in the Norn profile), plus CI assertions for both (T3-DEC-2, Norn-cloud/norn-platform#2670) |
+| `norn-v2.0.1-8` | `c4e6683799419bc74d4850afd78e4bf743cbbbf9` | S5 deterministic temporal ordering and pure arithmetic (same-kind date/timestamp ordering, checked arithmetic 0001–9999, metered; ambient-clock temporal functions excluded) and C10 (CI Android SDK setup); reviewed in Norn-cloud/zen#10, Astra approve (Norn-cloud/norn-platform#3112) |
 
 ## Feature matrix (`zen-engine`)
 
@@ -283,8 +284,7 @@ the upstream tag, so `git log zen-engine-v2.0.1..` lists the full downstream del
 
 ## New-tag checklist (S5 candidate)
 
-Proposed next tag: **`norn-v2.0.1-8`**. This is a proposal, not a published release;
-the release table above lists published tags only.
+Published as **`norn-v2.0.1-8`** (2026-10-06). Remaining step: qualify and bump the norn-platform profile (step 4).
 
 1. Merge the temporal fork PR into `norn/v2.0.1` only after Norn CI is green:
    default upstream suite, pure profile, dependency trees, existing semantic
