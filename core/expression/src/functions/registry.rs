@@ -38,10 +38,12 @@ impl FunctionRegistry {
 
     fn new_internal() -> Self {
         let internal_functions = InternalFunction::iter()
+            .filter(|i| !cfg!(feature = "deterministic-temporal") || *i != InternalFunction::Date)
             .map(|i| (i.clone(), (&i).into()))
             .collect();
 
         let deprecated_functions = DeprecatedFunction::iter()
+            .filter(|_| !cfg!(feature = "deterministic-temporal"))
             .map(|i| (i.clone(), (&i).into()))
             .collect();
 

@@ -53,7 +53,11 @@ impl VariableType {
             (VariableType::String, VariableType::String) => true,
             (VariableType::Number, VariableType::Number) => true,
             (VariableType::Date, VariableType::Date) => true,
+            #[cfg(feature = "deterministic-temporal")]
+            (VariableType::Timestamp, VariableType::Timestamp) => true,
+            #[cfg(not(feature = "deterministic-temporal"))]
             (VariableType::Number, VariableType::Date) => true,
+            #[cfg(not(feature = "deterministic-temporal"))]
             (_, VariableType::Date) if self.widen().is_string() => true,
             (VariableType::Interval, VariableType::Interval) => true,
             (VariableType::Array(a1), VariableType::Array(a2)) => a1.satisfies(a2),
@@ -155,6 +159,8 @@ impl VariableType {
             (VariableType::String, VariableType::String) => VariableType::String,
             (VariableType::Number, VariableType::Number) => VariableType::Number,
             (VariableType::Date, VariableType::Date) => VariableType::Date,
+            #[cfg(feature = "deterministic-temporal")]
+            (VariableType::Timestamp, VariableType::Timestamp) => VariableType::Timestamp,
             (VariableType::Interval, VariableType::Interval) => VariableType::Interval,
             (VariableType::Array(a1), VariableType::Array(a2)) => {
                 if Rc::ptr_eq(a1, a2) {
@@ -254,6 +260,8 @@ impl VariableType {
             VariableType::String => VariableType::String,
             VariableType::Number => VariableType::Number,
             VariableType::Date => VariableType::Date,
+            #[cfg(feature = "deterministic-temporal")]
+            VariableType::Timestamp => VariableType::Timestamp,
             VariableType::Interval => VariableType::Interval,
             VariableType::Array(arr) => VariableType::Array(arr.clone()),
             VariableType::Object(obj) => VariableType::Object(obj.clone()),

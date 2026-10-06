@@ -132,10 +132,14 @@ jobs:
         env:
           CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
         run: cargo test -p zen-expression --no-default-features --features metering --target wasm32-unknown-unknown --test metering --locked
+      - name: deterministic temporal parity on wasm32-unknown-unknown (S5)
+        env:
+          CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
+        run: cargo test -p zen-expression --no-default-features --features deterministic-temporal,metering --target wasm32-unknown-unknown --test temporal --locked
       # The Norn kernel profile: pure (no js/http/schema-resolvers) plus all three
       # semantic patches, as the kernel will build it for Workers / Durable Objects.
       - name: build zen-engine Norn profile for wasm32-unknown-unknown
-        run: cargo build -p zen-engine --no-default-features --features strict-errors,deterministic-maps,metering --target wasm32-unknown-unknown --release --locked
+        run: cargo build -p zen-engine --no-default-features --features strict-errors,deterministic-maps,metering,deterministic-temporal --target wasm32-unknown-unknown --release --locked
       - name: assert tokio / rquickjs / reqwest are absent from the Norn profile wasm tree
         run: |
           set -euo pipefail
@@ -148,7 +152,7 @@ jobs:
       - name: assert getrandom / jsonschema / swc / smartstring are absent from the Norn profile trees (C8, C9)
         run: |
           set -euo pipefail
-          profile=strict-errors,deterministic-maps,metering,regex-lite
+          profile=strict-errors,deterministic-maps,metering,regex-lite,deterministic-temporal
           has() { grep -qE "(^|[^A-Za-z0-9_-])($1) v[0-9]" <<<"$2"; }
           # Each tree is a checked assignment, so a cargo tree failure fails the step.
           with_schema="$(cargo tree -e normal --target wasm32-unknown-unknown -p zen-engine --no-default-features --features "${profile},json-schema" --locked)"
@@ -172,3 +176,24 @@ jobs:
             echo "::error::jsonschema, swc or smartstring present in the Norn profile native tree"
             exit 1
           fi
+
+  temporal-native:
+    name: deterministic temporal profile (native parity, S5)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          components: rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: norn-temporal
+      - name: format temporal implementation and fixtures
+        run: rustfmt --edition 2021 --check core/expression/src/temporal.rs core/expression/tests/temporal.rs
+      - name: temporal parity with default dependencies
+        run: cargo test -p zen-expression --features deterministic-temporal,metering --test temporal --locked
+      - name: pure temporal profile and existing fuel fixtures
+        run: cargo test -p zen-expression --no-default-features --features regex-lite,deterministic-maps,metering,deterministic-temporal --test temporal --test metering --locked
+      - name: engine feature propagation
+        run: cargo test -p zen-engine --no-default-features --features strict-errors,deterministic-maps,metering,deterministic-temporal --lib --test strict_errors --test metering --locked

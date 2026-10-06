@@ -52,6 +52,24 @@ pub enum InternalFunction {
 
     #[strum(serialize = "d")]
     Date,
+
+    #[cfg(feature = "deterministic-temporal")]
+    #[strum(serialize = "date")]
+    CalendarDate,
+    #[cfg(feature = "deterministic-temporal")]
+    Timestamp,
+    #[cfg(feature = "deterministic-temporal")]
+    #[strum(serialize = "days_between")]
+    DaysBetween,
+    #[cfg(feature = "deterministic-temporal")]
+    #[strum(serialize = "add_days")]
+    AddDays,
+    #[cfg(feature = "deterministic-temporal")]
+    #[strum(serialize = "seconds_between")]
+    SecondsBetween,
+    #[cfg(feature = "deterministic-temporal")]
+    #[strum(serialize = "add_seconds")]
+    AddSeconds,
 }
 
 impl From<&InternalFunction> for Rc<dyn FunctionDefinition> {
@@ -300,6 +318,14 @@ impl From<&InternalFunction> for Rc<dyn FunctionDefinition> {
                 ),
             }),
 
+            #[cfg(feature = "deterministic-temporal")]
+            IF::CalendarDate
+            | IF::Timestamp
+            | IF::DaysBetween
+            | IF::AddDays
+            | IF::SecondsBetween
+            | IF::AddSeconds => crate::temporal::definition(*value),
+
             IF::Date => Rc::new(CompositeFunction {
                 implementation: Rc::new(imp::date),
                 signatures: vec![
@@ -325,10 +351,10 @@ impl From<&InternalFunction> for Rc<dyn FunctionDefinition> {
 
 pub(crate) mod imp {
     use crate::functions::arguments::Arguments;
-    use crate::vm::date::DynamicVariableExt;
     use crate::vm::VmDate;
+    use crate::vm::date::DynamicVariableExt;
     use crate::{Variable as V, Variable};
-    use anyhow::{anyhow, Context};
+    use anyhow::{Context, anyhow};
     use chrono_tz::Tz;
     // Norn: `regex-lite` wins when enabled (upstream precedence); `regex-deprecated`
     // selects `regex`; with neither feature, fall back to `regex-lite` so the crate

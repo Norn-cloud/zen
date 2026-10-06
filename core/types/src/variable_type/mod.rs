@@ -19,6 +19,8 @@ pub enum VariableType {
     String,
     Number,
     Date,
+    #[cfg(feature = "deterministic-temporal")]
+    Timestamp,
     Interval,
     Array(Rc<VariableType>),
     Object(RcCell<HashMap<Rc<str>, VariableType>>),
@@ -49,6 +51,8 @@ impl Display for VariableType {
             VariableType::String => write!(f, "string"),
             VariableType::Number => write!(f, "number"),
             VariableType::Date => write!(f, "date"),
+            #[cfg(feature = "deterministic-temporal")]
+            VariableType::Timestamp => write!(f, "timestamp"),
             VariableType::Interval => write!(f, "interval"),
             VariableType::Const(c) => write!(f, "\"{c}\""),
             VariableType::Enum(name, e) => {
@@ -86,6 +90,8 @@ impl Hash for VariableType {
             VariableType::String => 3.hash(state),
             VariableType::Number => 4.hash(state),
             VariableType::Date => 5.hash(state),
+            #[cfg(feature = "deterministic-temporal")]
+            VariableType::Timestamp => 12.hash(state),
             VariableType::Interval => 6.hash(state),
             VariableType::Const(c) => {
                 7.hash(state);

@@ -11,8 +11,8 @@
 //! with the same [`BudgetExhausted`] value, even if an intermediate caller swallowed
 //! the first error.
 
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use thiserror::Error;
 
 use crate::variable::Variable;
@@ -118,6 +118,8 @@ pub mod cost {
     pub const OPCODE: u64 = 1;
     /// Compiling a regular expression (`matches`, `extract`), plus the pattern length.
     pub const REGEX_COMPILE: u64 = 64;
+    /// Checked temporal arithmetic (in addition to shallow argument sizes).
+    pub const TEMPORAL_ARITHMETIC: u64 = 8;
     /// One zen-engine graph node visit.
     pub const NODE_VISIT: u64 = 1;
     /// One zen-engine decision-table row considered.
