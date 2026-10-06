@@ -51,8 +51,21 @@ fn variable_type_satisfies() -> TestResult {
     assert!(!VariableType::String.satisfies(&VariableType::Number));
 
     // Date satisfaction
-    assert!(VariableType::Number.satisfies(&VariableType::Date));
-    assert!(VariableType::String.satisfies(&VariableType::Date));
+    assert_eq!(
+        VariableType::Number.satisfies(&VariableType::Date),
+        !cfg!(feature = "deterministic-temporal")
+    );
+    assert_eq!(
+        VariableType::String.satisfies(&VariableType::Date),
+        !cfg!(feature = "deterministic-temporal")
+    );
+    assert!(VariableType::Timestamp.satisfies(&VariableType::Timestamp));
+    assert!(!VariableType::Date.satisfies(&VariableType::Timestamp));
+    assert!(!VariableType::Timestamp.satisfies(&VariableType::Date));
+    assert_eq!(
+        VariableType::Timestamp.merge(&VariableType::Timestamp),
+        VariableType::Timestamp
+    );
 
     // Const and enum satisfaction
     let const_a = VariableType::Const(Rc::from("a"));

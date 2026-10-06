@@ -398,7 +398,6 @@ impl TypesProvider {
                         | ComparisonOperator::LessThanOrEqual
                         | ComparisonOperator::GreaterThanOrEqual => match (left_type.deref(), right_type.deref()) {
                             (VariableType::Date | VariableType::Any, VariableType::Date | VariableType::Any) => V(VariableType::Bool),
-                            #[cfg(feature = "deterministic-temporal")]
                             (VariableType::Timestamp | VariableType::Any, VariableType::Timestamp | VariableType::Any) => V(VariableType::Bool),
                             (VariableType::Number | VariableType::Any, VariableType::Number | VariableType::Any) => V(VariableType::Bool),
                             _ => Error(format!(

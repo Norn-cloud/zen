@@ -53,7 +53,6 @@ impl VariableType {
             (VariableType::String, VariableType::String) => true,
             (VariableType::Number, VariableType::Number) => true,
             (VariableType::Date, VariableType::Date) => true,
-            #[cfg(feature = "deterministic-temporal")]
             (VariableType::Timestamp, VariableType::Timestamp) => true,
             #[cfg(not(feature = "deterministic-temporal"))]
             (VariableType::Number, VariableType::Date) => true,
@@ -159,7 +158,6 @@ impl VariableType {
             (VariableType::String, VariableType::String) => VariableType::String,
             (VariableType::Number, VariableType::Number) => VariableType::Number,
             (VariableType::Date, VariableType::Date) => VariableType::Date,
-            #[cfg(feature = "deterministic-temporal")]
             (VariableType::Timestamp, VariableType::Timestamp) => VariableType::Timestamp,
             (VariableType::Interval, VariableType::Interval) => VariableType::Interval,
             (VariableType::Array(a1), VariableType::Array(a2)) => {
@@ -260,7 +258,6 @@ impl VariableType {
             VariableType::String => VariableType::String,
             VariableType::Number => VariableType::Number,
             VariableType::Date => VariableType::Date,
-            #[cfg(feature = "deterministic-temporal")]
             VariableType::Timestamp => VariableType::Timestamp,
             VariableType::Interval => VariableType::Interval,
             VariableType::Array(arr) => VariableType::Array(arr.clone()),

@@ -195,5 +195,7 @@ jobs:
         run: cargo test -p zen-expression --features deterministic-temporal,metering --test temporal --locked
       - name: pure temporal profile and existing fuel fixtures
         run: cargo test -p zen-expression --no-default-features --features regex-lite,deterministic-maps,metering,deterministic-temporal --test temporal --test metering --locked
+      - name: temporal type metadata under Cargo feature unification
+        run: cargo test -p zen-types --no-default-features --features deterministic-temporal --test variable_type --locked
       - name: engine feature propagation
         run: cargo test -p zen-engine --no-default-features --features strict-errors,deterministic-maps,metering,deterministic-temporal --lib --test strict_errors --test metering --locked
