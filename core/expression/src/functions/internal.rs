@@ -775,6 +775,10 @@ pub(crate) mod imp {
     }
 
     pub fn to_string(args: Arguments) -> anyhow::Result<V> {
+        #[cfg(feature = "deterministic-temporal")]
+        if let Some(value) = args.var(0)?.dynamic::<crate::temporal::Temporal>() {
+            return Ok(V::String(value.to_string().into()));
+        }
         let a = args.var(0)?;
         let val = match a {
             V::Null => "null".into(),

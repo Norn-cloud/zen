@@ -82,6 +82,7 @@ conversion, host timezone, locale, database or clock is used.
 - `timestamp(text)` accepts uppercase `YYYY-MM-DDTHH:MM:SS[.fraction]Z` or an
   explicit `+HH:MM` / `-HH:MM` offset. Fractions have **1..9 digits**; all are
   preserved exactly. UTC output uses Chrono `AutoSi` (0/3/6/9 fractional digits).
+  `string(value)` and JSON serialization use the same canonical spelling.
   Leap seconds, unknown offset `-00:00`, offset-less text, invalid calendars and
   UTC normalization outside years 0001..9999 fail. Numeric epochs, named zones,
   abbreviated dates, whitespace and unsupported precision fail.
