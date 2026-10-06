@@ -1,4 +1,5 @@
-# Norn fork gates (see NORN.md). Upstream workflows are left untouched.
+# Norn fork gates (see NORN.md). Rust CI also compiles all features and runs
+# the upstream corpus with its legacy temporal profile.
 name: Norn
 
 permissions:

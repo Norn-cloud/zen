@@ -48,7 +48,13 @@ jobs:
           sccache-bucket: ${{ secrets.SCCACHE_S3_BUCKET }}
           sccache-region: ${{ secrets.SCCACHE_AWS_REGION }}
           sccache-role-arn: ${{ secrets.SCCACHE_AWS_ROLE_ARN }}
-      - run: cargo test --workspace --all-features --exclude zen-ffi --exclude zen-nodejs --exclude zen-python --locked
+      # S5 deliberately disables upstream temporal APIs. Compile every feature,
+      # then run the legacy corpus with its original feature set; Norn's workflow
+      # executes the temporal profile's own native/wasm qualification corpus.
+      - name: Compile all feature combinations together
+        run: cargo check --workspace --all-features --exclude zen-ffi --exclude zen-nodejs --exclude zen-python --locked
+      - name: Upstream corpus with all legacy features
+        run: cargo test --workspace --features zen-engine/arbitrary_precision,zen-engine/bindgen,zen-engine/regex-lite,zen-engine/strict-errors,zen-engine/deterministic-maps,zen-engine/metering --exclude zen-ffi --exclude zen-nodejs --exclude zen-python --locked
       - name: Test without arbitrary_precision
         run: cargo test --workspace --exclude zen-ffi --exclude zen-nodejs --exclude zen-python --locked
 
