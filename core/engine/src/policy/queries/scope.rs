@@ -810,6 +810,7 @@ impl AcyclicCloner {
             | VariableType::String
             | VariableType::Number
             | VariableType::Date
+            | VariableType::Timestamp
             | VariableType::Interval => t.shallow_clone(),
             VariableType::Const(c) => VariableType::Const(c.clone()),
             VariableType::Enum(name, values) => VariableType::Enum(name.clone(), values.clone()),

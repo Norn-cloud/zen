@@ -19,7 +19,7 @@ pub enum VariableType {
     String,
     Number,
     Date,
-    #[cfg(feature = "deterministic-temporal")]
+    /// Norn temporal instant metadata; constructors are opt-in in zen-expression.
     Timestamp,
     Interval,
     Array(Rc<VariableType>),
@@ -51,7 +51,6 @@ impl Display for VariableType {
             VariableType::String => write!(f, "string"),
             VariableType::Number => write!(f, "number"),
             VariableType::Date => write!(f, "date"),
-            #[cfg(feature = "deterministic-temporal")]
             VariableType::Timestamp => write!(f, "timestamp"),
             VariableType::Interval => write!(f, "interval"),
             VariableType::Const(c) => write!(f, "\"{c}\""),
@@ -90,7 +89,6 @@ impl Hash for VariableType {
             VariableType::String => 3.hash(state),
             VariableType::Number => 4.hash(state),
             VariableType::Date => 5.hash(state),
-            #[cfg(feature = "deterministic-temporal")]
             VariableType::Timestamp => 12.hash(state),
             VariableType::Interval => 6.hash(state),
             VariableType::Const(c) => {
