@@ -1,7 +1,7 @@
 use crate::compiler::{Compare, FetchFastTarget, Jump, Opcode};
 use crate::functions::arguments::Arguments;
 use crate::functions::registry::FunctionRegistry;
-use crate::functions::{internal, MethodRegistry};
+use crate::functions::{MethodRegistry, internal};
 use crate::scope::Scope;
 use crate::variable::Variable;
 use crate::variable::Variable::*;
@@ -259,6 +259,15 @@ impl<'arena, 'parent_ref, 'bytecode_ref> VMInner<'parent_ref, 'bytecode_ref> {
                 Opcode::Equal => {
                     let b = self.pop()?;
                     let a = self.pop()?;
+                    #[cfg(feature = "deterministic-temporal")]
+                    if a.dynamic::<crate::temporal::Temporal>().is_some()
+                        != b.dynamic::<crate::temporal::Temporal>().is_some()
+                    {
+                        return Err(OpcodeErr {
+                            opcode: "Equal".into(),
+                            message: "temporal operands must have the same kind".into(),
+                        });
+                    }
                     match (a, b) {
                         (Number(a), Number(b)) => {
                             self.push(Bool(a == b));
@@ -273,6 +282,19 @@ impl<'arena, 'parent_ref, 'bytecode_ref> VMInner<'parent_ref, 'bytecode_ref> {
                             self.push(Bool(true));
                         }
                         (Dynamic(a), Dynamic(b)) => {
+                            #[cfg(feature = "deterministic-temporal")]
+                            if let (Some(a), Some(b)) = (
+                                a.as_any().downcast_ref::<crate::temporal::Temporal>(),
+                                b.as_any().downcast_ref::<crate::temporal::Temporal>(),
+                            ) {
+                                let ordering = a.compare(b).map_err(|err| OpcodeErr {
+                                    opcode: "Equal".into(),
+                                    message: err.to_string(),
+                                })?;
+                                self.push(Bool(ordering == std::cmp::Ordering::Equal));
+                                continue;
+                            }
+
                             let a = a.as_date();
                             let b = b.as_date();
 
@@ -471,13 +493,30 @@ impl<'arena, 'parent_ref, 'bytecode_ref> VMInner<'parent_ref, 'bytecode_ref> {
                     match (a, b) {
                         (Number(a), Number(b)) => self.push(Bool(compare(&a, &b, comparison))),
                         (Dynamic(a), Dynamic(b)) => {
+                            #[cfg(feature = "deterministic-temporal")]
+                            if let (Some(a), Some(b)) = (
+                                a.as_any().downcast_ref::<crate::temporal::Temporal>(),
+                                b.as_any().downcast_ref::<crate::temporal::Temporal>(),
+                            ) {
+                                let ordering = a.compare(b).map_err(|err| OpcodeErr {
+                                    opcode: "Compare".into(),
+                                    message: err.to_string(),
+                                })?;
+                                self.push(Bool(compare(
+                                    &ordering,
+                                    &std::cmp::Ordering::Equal,
+                                    comparison,
+                                )));
+                                continue;
+                            }
+
                             let (a, b) = match (a.as_date(), b.as_date()) {
                                 (Some(a), Some(b)) => (a, b),
                                 _ => {
                                     return Err(OpcodeErr {
                                         opcode: "Compare".into(),
                                         message: "Unsupported type".into(),
-                                    })
+                                    });
                                 }
                             };
 
@@ -646,7 +685,7 @@ impl<'arena, 'parent_ref, 'bytecode_ref> VMInner<'parent_ref, 'bytecode_ref> {
                                     return Err(OpcodeErr {
                                         opcode: "Interval".into(),
                                         message: "Unsupported type".into(),
-                                    })
+                                    });
                                 }
                             };
 
@@ -1076,7 +1115,7 @@ impl VMInner<'_, '_> {
     /// result above it exhausts the meter regardless of the exact value.
     fn data_cost(&self, op: &Opcode, cap: u64, steps: &mut u64) -> u64 {
         use crate::functions::{FunctionKind, InternalFunction as F};
-        use crate::meter::cost::{deep_size_capped, nested_size_capped, size, REGEX_COMPILE};
+        use crate::meter::cost::{REGEX_COMPILE, deep_size_capped, nested_size_capped, size};
         use std::cell::Cell;
 
         let size_of = |n: usize| self.peek(n).map(size).unwrap_or(0);
@@ -1135,6 +1174,10 @@ impl VMInner<'_, '_> {
                         .unwrap_or(0)
                         .saturating_mul(args.get(1).map(size).unwrap_or(0)),
                     FunctionKind::Internal(F::MergeDeep) => sum(args, &deep),
+                    #[cfg(feature = "deterministic-temporal")]
+                    FunctionKind::Internal(
+                        F::DaysBetween | F::AddDays | F::SecondsBetween | F::AddSeconds,
+                    ) => crate::meter::cost::TEMPORAL_ARITHMETIC.saturating_add(sum(args, &size)),
                     _ => sum(args, &size),
                 }
             }

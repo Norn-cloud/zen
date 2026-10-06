@@ -49,6 +49,7 @@ impl MethodRegistry {
 
     fn new_internal() -> Self {
         let date_methods = DateMethod::iter()
+            .filter(|_| !cfg!(feature = "deterministic-temporal"))
             .map(|i| (i.clone(), (&i).into()))
             .collect();
 

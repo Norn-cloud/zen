@@ -50,13 +50,15 @@ Consumers pin a `norn-v2.0.1-N` **tag** (or its commit), never the moving branch
 | S2 | Feature `strict-errors` (default **off**): a decision-table input cell that fails to evaluate or is not a boolean, a failing output cell of a matching row, and a switch condition that fails or is not a boolean abort evaluation with the typed `zen_engine::StrictEvaluationError { site, id, expression, message }` (`site`: `DecisionTableInput` / `DecisionTableOutput` / `SwitchCondition`), delivered as the `source` of `EvaluationError::NodeError`. Upstream (feature off) turns these into a non-match, a dropped row result, or a false condition. Applies to both hit policies, traced and untraced evaluation. Strict evaluation does not use the decision-table index, because the index would prune a failing cell without evaluating it (-4). A sub-decision's error stays in the source chain (the decision node's `source` is the child `EvaluationError`), so callers can downcast through it to `StrictEvaluationError` (-4; applies with the feature off too, and the message text is unchanged). Four upstream fixture tests that depend on the fallback are ignored when the feature is on. | Review F4: a failing deny row must not yield a fallback result, and a failing switch branch must not fall through. (norn-v2.0.1-3) |
 | S3 | Feature `deterministic-maps` (default **off**, on `zen-types`; forwarded by `zen-expression` and `zen-engine`): above the 32-key small-map threshold `VariableMap` uses an insertion-ordered `indexmap::IndexMap` (removal is order-preserving `shift_remove`) instead of an ahash `HashMap`. Iteration order is insertion order at every size, so `keys`, `values`, serialization and every other walk are independent of hash seeds. The engine's `$nodes` object is built in graph node order. | Review F1: eight equivalent 40-key inputs produced eight `keys` orders. (norn-v2.0.1-3) |
 | S4 | Feature `metering` (default **off**; on `zen-expression`, forwarded by `zen-engine`): a shared `Meter` (limit + counter) charged by every executed VM opcode (so every closure iteration of `map`/`filter`/`flatMap`/...), by data-proportional builtins and opcodes, and by zen-engine graph node visits, decision-table rows and transform-attributes loop elements. Running out fails with the typed `BudgetExhausted { limit, used }`: `VMError::BudgetExhausted` in an `Isolate`, `EvaluationError::BudgetExhausted` from `Decision::evaluate_metered`. The meter is sticky, and the graph evaluator checks it after every node, so an exhaustion swallowed inside a node (for example a non-strict table cell) still aborts the evaluation. See "Metering cost model". | Review F3: poll/depth/reset counts do not bound work. (norn-v2.0.1-3) |
+| S5 | Feature `deterministic-temporal` (default **off**; on `zen-expression`, forwarded by `zen-engine` and `zen-tmpl`, adds `zen-types::VariableType::Timestamp`): strict pure `date` / `timestamp` constructors, distinct calendar-date / UTC-instant values, total same-kind ordering and semantic equality, checked `days_between`, `add_days`, `seconds_between`, `add_seconds`. Disables upstream `d`, all deprecated temporal functions and all legacy date methods in this profile. | #3112 season-window ordering; no ambient clock, timezone or string coercion. Proposed `norn-v2.0.1-8`; qualification and tagging pending lead review. |
 
-The semantic patches S2 to S4 are **off by default**. The Norn profile enables them
+The semantic patches S2 to S5 are **off by default**. The Norn profile enables them
 explicitly, for example
 `zen-engine = { ..., default-features = false, features = ["strict-errors", "deterministic-maps", "metering"] }`.
-Banning or pinning ambient time and randomness builtins (`rand`, `now`, default
-timezone) is **not** a fork patch. Per D32 it belongs to Norn's own checker/admission
-(`norn-expr` / `norn-decisions`).
+The general ban on randomness (`rand`) belongs to Norn's checker/admission.
+S5 closes the temporal runtime surface when explicitly enabled: its `date(text)`
+replaces the deprecated upstream numeric `date`, and upstream `d()` / date methods
+are unavailable. Default builds retain every upstream temporal function.
 
 Known gaps, outside this series:
 - Diagnostic type-union strings in `functions/defs.rs` are built from std `HashSet`,
@@ -65,6 +67,48 @@ Known gaps, outside this series:
   informational only.
 - `GraphWalker::ITER_MAX` (1000 switch resets) still ends a walk silently. Metering
   bounds the work that leads up to it.
+
+## Deterministic temporal contract (S5)
+
+Enable `deterministic-temporal` alongside the Norn profile features. JSON strings
+remain strings; expressions explicitly call `date(input.start)` or
+`timestamp(input.observedAt)`. The public `zen_expression::temporal::Temporal`
+constructors also yield checked, opaque dynamic values via `into_variable()`;
+these admission helpers are unmetered and examine at most 35 bytes. No implicit
+conversion, host timezone, locale, database or clock is used.
+
+- `date(text)` accepts exactly `YYYY-MM-DD`, Gregorian calendar years
+  **0001..9999**. Date output uses the same spelling.
+- `timestamp(text)` accepts uppercase `YYYY-MM-DDTHH:MM:SS[.fraction]Z` or an
+  explicit `+HH:MM` / `-HH:MM` offset. Fractions have **1..9 digits**; all are
+  preserved exactly. UTC output uses Chrono `AutoSi` (0/3/6/9 fractional digits).
+  Leap seconds, unknown offset `-00:00`, offset-less text, invalid calendars and
+  UTC normalization outside years 0001..9999 fail. Numeric epochs, named zones,
+  abbreviated dates, whitespace and unsupported precision fail.
+- `<`, `<=`, `>`, `>=` and equality compare same-kind values by calendar day or
+  UTC instant. Date/instant pairs fail; strings are never implicitly parsed.
+  Static signatures distinguish `Date` and `Timestamp`; runtime checks apply
+  even to dynamically supplied operands.
+- `days_between(start, end)` returns signed **end minus start** in calendar days.
+  `add_days(date, integer)` adds signed calendar days. `seconds_between(start,
+  end)` returns exact signed decimal seconds including nanoseconds;
+  `add_seconds(timestamp, integer)` adds signed seconds, preserving the fraction.
+  All additions use checked Chrono arithmetic. Fractional amounts, integer
+  overflow and results outside years 0001..9999 fail, with no wrap or clamp.
+- Legacy `d` (including zero-argument clock access), deprecated temporal
+  builtins and legacy date methods are absent from the profile registry. Only
+  the six S5 functions are provided; upstream default builds are unchanged.
+
+With `metering`, parsing is charged **before** execution by string byte length
+plus the ordinary opcode unit. Lexical checks and Chrono parsing are bounded by
+35 bytes. Arithmetic pays shallow argument sizes plus
+`cost::TEMPORAL_ARITHMETIC = 8` and the opcode unit; its work is constant regardless
+of the day/second amount. Failed calls pay the same attempted charge. Comparisons
+are constant work and pay the ordinary opcode unit (equality also retains its
+existing shallow-size charge). This is a new semantic profile identity.
+`core/expression/tests/temporal.rs` runs the identical results, rejections and
+pinned fuel fixtures natively and via `wasm-bindgen-test-runner` in Norn CI.
+
 
 ## Releases (tags)
 
@@ -96,6 +140,7 @@ lists the full downstream delta.
 | `arbitrary_precision` | off | unchanged from upstream |
 | `strict-errors` | off | Norn semantic patch S2: typed abort on failing table cells / switch conditions |
 | `deterministic-maps` | off | Norn semantic patch S3: insertion-ordered `VariableMap` at every size (`indexmap`). Also on `zen-expression` and `zen-types`. |
+| `deterministic-temporal` | off | Norn S5: pure typed temporal parsing, comparisons and checked arithmetic. Forwarded by zen-tmpl too. |
 | `metering` | off | Norn semantic patch S4: deterministic operation budget (`zen_engine::meter::Meter`, `Decision::evaluate_metered`). Also on `zen-expression` (`Isolate::set_meter`). |
 
 The Norn pure profile is `zen-engine = { ..., default-features = false }`. Its
@@ -224,3 +269,20 @@ both targets.
 Upstream is MIT, © GoRules.io. See `LICENSE`, which this fork keeps unchanged.
 Norn modifications are also MIT. Every Norn change is a separate commit on top of
 the upstream tag, so `git log zen-engine-v2.0.1..` lists the full downstream delta.
+
+
+## New-tag checklist (S5 candidate)
+
+Proposed next tag: **`norn-v2.0.1-8`**. This is a proposal, not a published release;
+the release table above lists published tags only.
+
+1. Merge the temporal fork PR into `norn/v2.0.1` only after Norn CI is green:
+   default upstream suite, pure profile, dependency trees, existing semantic
+   patch tests, native temporal fixtures and wasm32 temporal parity / engine build.
+2. Obtain the lead's independent review and link its ship-bar verdict from the PR.
+3. The lead creates an immutable annotated `norn-v2.0.1-8` on the reviewed merged
+   commit and updates the release table. This worker does not create a tag.
+4. Qualify the new semantic profile in norn-platform. Update its fork ledger,
+   pin file, Cargo tag/lock, checker signatures, cost model and positive temporal
+   relational conformance tests together, following the platform checklist.
+   No platform pin or platform source is changed in this fork PR.

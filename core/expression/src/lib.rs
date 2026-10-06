@@ -75,6 +75,9 @@ pub mod validate;
 pub mod variable;
 pub mod vm;
 
+#[cfg(feature = "deterministic-temporal")]
+pub mod temporal;
+
 pub use exports::{
     compile_expression, compile_unary_expression, evaluate_expression, evaluate_unary_expression,
 };

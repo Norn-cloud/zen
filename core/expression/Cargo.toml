@@ -65,6 +65,8 @@ arbitrary_precision = ["serde_json/arbitrary_precision", "zen-types/arbitrary_pr
 deterministic-maps = ["zen-types/deterministic-maps"]
 # Norn semantic patch (default off; see NORN.md): deterministic operation budget (`meter`).
 metering = []
+# Norn S5: strict, pure calendar dates and UTC instants; legacy temporal APIs disabled.
+deterministic-temporal = ["zen-types/deterministic-temporal"]
 
 [[bench]]
 harness = false

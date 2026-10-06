@@ -1,5 +1,5 @@
-use crate::functions::registry::FunctionRegistry;
 use crate::functions::DateMethod;
+use crate::functions::registry::FunctionRegistry;
 use crate::functions::{
     ClosureFunction, DeprecatedFunction, FunctionKind, InternalFunction, MethodKind, MethodRegistry,
 };
@@ -85,7 +85,10 @@ impl Completions {
             }
         }
 
-        for mk in DateMethod::iter().map(MethodKind::DateMethod) {
+        for mk in DateMethod::iter()
+            .filter(|_| !cfg!(feature = "deterministic-temporal"))
+            .map(MethodKind::DateMethod)
+        {
             let def = MethodRegistry::get_definition(&mk);
             let applies = def
                 .as_ref()
@@ -134,6 +137,9 @@ impl Completions {
 
         completions.extend(
             InternalFunction::iter()
+                .filter(|i| {
+                    !cfg!(feature = "deterministic-temporal") || *i != InternalFunction::Date
+                })
                 .map(FunctionKind::Internal)
                 .chain(ClosureFunction::iter().map(FunctionKind::Closure))
                 .map(|fk| Self::function(fk, None)),
@@ -263,6 +269,18 @@ fn function_info(fk: &FunctionKind) -> String {
                 "Returns an array of a given object's own enumerable property values"
             }
             InternalFunction::Date => "Returns a new date time instance",
+            #[cfg(feature = "deterministic-temporal")]
+            InternalFunction::CalendarDate | InternalFunction::Timestamp => {
+                "Parses a strict deterministic temporal value"
+            }
+            #[cfg(feature = "deterministic-temporal")]
+            InternalFunction::DaysBetween | InternalFunction::SecondsBetween => {
+                "Returns the signed difference from start to end"
+            }
+            #[cfg(feature = "deterministic-temporal")]
+            InternalFunction::AddDays | InternalFunction::AddSeconds => {
+                "Adds an integer amount with checked range"
+            }
             InternalFunction::Merge => "Merges multiple objects into one",
             InternalFunction::MergeDeep => "Deeply merges multiple objects into one",
         },
@@ -344,6 +362,14 @@ fn function_param_names(fk: &FunctionKind) -> Vec<&'static str> {
             | InternalFunction::Type => vec!["value"],
             InternalFunction::Keys | InternalFunction::Values => vec!["obj"],
             InternalFunction::Date => vec!["dateOrTimezone", "timezone"],
+            #[cfg(feature = "deterministic-temporal")]
+            InternalFunction::CalendarDate | InternalFunction::Timestamp => vec!["text"],
+            #[cfg(feature = "deterministic-temporal")]
+            InternalFunction::DaysBetween | InternalFunction::SecondsBetween => {
+                vec!["start", "end"]
+            }
+            #[cfg(feature = "deterministic-temporal")]
+            InternalFunction::AddDays | InternalFunction::AddSeconds => vec!["value", "amount"],
             InternalFunction::Merge | InternalFunction::MergeDeep => vec!["objects"],
         },
         FunctionKind::Deprecated(d) => match d {

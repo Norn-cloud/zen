@@ -44,7 +44,7 @@ impl<'arena, 'token_ref> Parser<'arena, 'token_ref, Unary> {
                             format!("Invalid join operator `{}`", current_token.kind).as_str(),
                         ),
                         span: current_token.span,
-                    })
+                    });
                 }
             };
 
@@ -378,6 +378,13 @@ impl From<&Node<'_>> for UnaryNodeBehaviour {
                     InternalFunction::Values => CompareWithReference(In),
                     InternalFunction::Type => CompareWithReference(Equal),
                     InternalFunction::Date => CompareWithReference(Equal),
+                    #[cfg(feature = "deterministic-temporal")]
+                    InternalFunction::CalendarDate
+                    | InternalFunction::Timestamp
+                    | InternalFunction::DaysBetween
+                    | InternalFunction::AddDays
+                    | InternalFunction::SecondsBetween
+                    | InternalFunction::AddSeconds => CompareWithReference(Equal),
                 },
                 FunctionKind::Deprecated(d) => match d {
                     DeprecatedFunction::Date => CompareWithReference(Equal),

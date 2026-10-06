@@ -876,6 +876,8 @@ impl<'a> Projector<'a> {
             VariableType::String | VariableType::Const(_) => TypeTag::String,
             VariableType::Bool => TypeTag::Bool,
             VariableType::Date => TypeTag::Date,
+            #[cfg(feature = "deterministic-temporal")]
+            VariableType::Timestamp => TypeTag::Date,
             VariableType::Interval => TypeTag::Interval,
             VariableType::Object(_) => TypeTag::Object,
             VariableType::Null => TypeTag::Null,

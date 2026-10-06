@@ -118,3 +118,5 @@ deterministic-maps = ["zen-expression/deterministic-maps", "zen-types/determinis
 # visits. See `Decision::evaluate_metered` and `EvaluationError::BudgetExhausted`.
 metering = ["zen-expression/metering"]
 arbitrary_precision = ["serde_json/arbitrary_precision", "zen-expression/arbitrary_precision", "zen-types/arbitrary_precision", "zen-tmpl/arbitrary_precision"]
+# Norn S5: deterministic temporal expression profile.
+deterministic-temporal = ["zen-expression/deterministic-temporal"]
