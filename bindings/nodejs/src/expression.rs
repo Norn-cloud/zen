@@ -130,6 +130,7 @@ fn json_to_variable_type(value: &Value) -> zen_expression::variable::VariableTyp
         "string" => VT::String,
         "number" => VT::Number,
         "date" => VT::Date,
+        "timestamp" => VT::Timestamp,
         "interval" => VT::Interval,
         "const" => value
             .get("value")

@@ -360,6 +360,7 @@ fn variable_type_from_json(value: &Value) -> zen_expression::variable::VariableT
         "string" => VariableType::String,
         "number" => VariableType::Number,
         "date" => VariableType::Date,
+        "timestamp" => VariableType::Timestamp,
         "interval" => VariableType::Interval,
         "const" => value
             .get("value")
@@ -415,6 +416,7 @@ pub(crate) fn variable_type_to_json(vt: &zen_expression::variable::VariableType)
         VariableType::String => serde_json::json!({ "type": "string" }),
         VariableType::Number => serde_json::json!({ "type": "number" }),
         VariableType::Date => serde_json::json!({ "type": "date" }),
+        VariableType::Timestamp => serde_json::json!({ "type": "timestamp" }),
         VariableType::Interval => serde_json::json!({ "type": "interval" }),
         VariableType::Const(c) => serde_json::json!({ "type": "const", "value": c.as_ref() }),
         VariableType::Enum(name, values) => {
