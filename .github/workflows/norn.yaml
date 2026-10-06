@@ -190,7 +190,7 @@ jobs:
         with:
           shared-key: norn-temporal
       - name: format temporal implementation and fixtures
-        run: rustfmt --edition 2021 --check core/expression/src/temporal.rs core/expression/tests/temporal.rs
+        run: rustfmt --edition 2021 --config style_edition=2021 --check core/expression/src/temporal.rs core/expression/tests/temporal.rs
       - name: temporal parity with default dependencies
         run: cargo test -p zen-expression --features deterministic-temporal,metering --test temporal --locked
       - name: pure temporal profile and existing fuel fixtures

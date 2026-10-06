@@ -5,14 +5,14 @@
 //! Constructors outside the VM are unmetered and inspect at most 35 bytes.
 //! Dates and UTC instants range from year 0001 through 9999 inclusive.
 
-use crate::Variable;
-use crate::functions::InternalFunction;
 use crate::functions::arguments::Arguments;
 use crate::functions::defs::{FunctionDefinition, FunctionSignature, StaticFunction};
+use crate::functions::InternalFunction;
 use crate::variable::{DynamicVariable, VariableType};
+use crate::Variable;
 use chrono::{DateTime, Datelike, Days, NaiveDate, SecondsFormat, TimeDelta, Timelike, Utc};
-use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
 use serde_json::Value;
 use std::any::Any;
 use std::cmp::Ordering;

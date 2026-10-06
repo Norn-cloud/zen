@@ -444,9 +444,11 @@ fn legacy_temporal_and_ambient_clock_paths_are_unavailable() {
 #[cfg(feature = "metering")]
 mod metering {
     use super::*;
-    use zen_expression::IsolateError;
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+    use wasm_bindgen_test::wasm_bindgen_test as test;
     use zen_expression::meter::{BudgetExhausted, Meter};
     use zen_expression::vm::VMError;
+    use zen_expression::IsolateError;
 
     fn exhausted(error: IsolateError) -> BudgetExhausted {
         match error {
