@@ -227,6 +227,12 @@ both targets.
 
 ## CI (`.github/workflows/norn.yaml`, pinned toolchain)
 
+The upstream Rust OS matrix still compiles all features together, then runs the
+upstream corpus with all **legacy** features explicitly listed. S5 intentionally
+replaces the old temporal language, so its qualification corpus runs separately
+in the Norn native/wasm jobs; it cannot share the legacy temporal expectations.
+Default-feature upstream testing is retained on every OS.
+
 1. Upstream test suite, native, default features (upstream's binding exclusions).
 2. Pure profile: native `--lib` tests with `--no-default-features`, zen-expression
    integration tests with `--no-default-features` (regex-lite backend), then

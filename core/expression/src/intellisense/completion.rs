@@ -1,5 +1,5 @@
-use crate::functions::DateMethod;
 use crate::functions::registry::FunctionRegistry;
+use crate::functions::DateMethod;
 use crate::functions::{
     ClosureFunction, DeprecatedFunction, FunctionKind, InternalFunction, MethodKind, MethodRegistry,
 };

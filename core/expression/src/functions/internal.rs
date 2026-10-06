@@ -351,10 +351,10 @@ impl From<&InternalFunction> for Rc<dyn FunctionDefinition> {
 
 pub(crate) mod imp {
     use crate::functions::arguments::Arguments;
-    use crate::vm::VmDate;
     use crate::vm::date::DynamicVariableExt;
+    use crate::vm::VmDate;
     use crate::{Variable as V, Variable};
-    use anyhow::{Context, anyhow};
+    use anyhow::{anyhow, Context};
     use chrono_tz::Tz;
     // Norn: `regex-lite` wins when enabled (upstream precedence); `regex-deprecated`
     // selects `regex`; with neither feature, fall back to `regex-lite` so the crate
