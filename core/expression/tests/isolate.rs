@@ -1061,3 +1061,21 @@ fn string_index_at_usize_max_returns_null() {
     let result = isolate.run_standard("s[i]").unwrap();
     assert_eq!(result, Variable::Null);
 }
+
+#[test]
+fn empty_template_literal_is_empty_string_instead_of_panicking() {
+    let mut isolate = Isolate::new();
+    isolate.set_environment(json!({ "pui": 1 }).into());
+
+    // Zero template parts: `Join` must not compute `0 - 1` separators.
+    let empty = isolate.run_standard("``").unwrap();
+    assert_eq!(empty, Variable::from(json!("")));
+
+    let single = isolate.run_standard("`a${1}`").unwrap();
+    assert_eq!(single, Variable::from(json!("a1")));
+
+    // Minimized coverage-guided input from Norn-cloud/norn-platform#3243: an
+    // unterminated template after a binary operator. Either outcome is fine; it
+    // must not panic.
+    let _ = isolate.run_standard("pui-`");
+}
