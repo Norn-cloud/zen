@@ -1079,3 +1079,31 @@ fn empty_template_literal_is_empty_string_instead_of_panicking() {
     // must not panic.
     let _ = isolate.run_standard("pui-`");
 }
+
+#[test]
+fn nested_brackets_beside_a_range_parse_without_exponential_backtracking() {
+    let mut isolate = Isolate::new();
+
+    // Coverage-guided input from Norn-cloud/norn-platform#3243 that took more
+    // than 10 s to parse. Any outcome is fine; it must return promptly.
+    let fuzzed = "()[[[[[[- n-5 not in [-5..ot in [-[[[[[[[[[[[[[[[[[[[[( 1 O5";
+    let _ = isolate.run_standard(fuzzed);
+
+    // With a range operator anywhere in the source, every `[` or `(` used to be
+    // parsed as an interval twice and then again as an array or group, so the
+    // work tripled per nesting level. 3^40 steps would never finish.
+    let depth = 40;
+    let nested = format!("{}1{}", "[".repeat(depth), "]".repeat(depth));
+    let source = format!("1 in [0..2] and len({nested}) == 1");
+    assert_eq!(isolate.run_standard(&source).unwrap(), Variable::Bool(true));
+
+    let grouped = format!("{}1{} in [0..2]", "(".repeat(depth), ")".repeat(depth));
+    assert_eq!(isolate.run_standard(&grouped).unwrap(), Variable::Bool(true));
+
+    let unclosed = format!("1 in [0..2] and {}", "[".repeat(depth));
+    assert!(isolate.run_standard(&unclosed).is_err());
+
+    isolate.set_reference("1").unwrap();
+    let unary = format!("[0..2] or {}1{} == 1", "[".repeat(depth), "]".repeat(depth));
+    let _ = isolate.run_unary(&unary);
+}

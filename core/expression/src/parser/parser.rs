@@ -13,7 +13,7 @@ use bumpalo::Bump;
 use nohash_hasher::BuildNoHashHasher;
 use rust_decimal::Decimal;
 use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::ops::Deref;
@@ -44,6 +44,16 @@ pub struct Parser<'arena, 'token_ref, Flavor> {
     depth: Cell<u8>,
     marker_flavor: PhantomData<Flavor>,
     has_range_operator: bool,
+    /// `(token position, closure depth)` pairs where an interval attempt has
+    /// already failed, with the position the failed attempt left behind.
+    /// Interval parsing is speculative: on failure the caller re-parses the
+    /// same tokens as an array or a parenthesised expression, and the unary
+    /// path and the literal path both try it. Without this memo every nested
+    /// bracket multiplied the work, so parse time grew exponentially with
+    /// nesting (C11). The outcome of an attempt depends only on these two values
+    /// within one parser flavor, so a repeated attempt replays the recorded
+    /// failure instead of re-parsing.
+    failed_intervals: RefCell<BTreeMap<(usize, u8), usize>>,
     pub(crate) node_metadata:
         Option<RefCell<HashMap<usize, NodeMetadata, BuildNoHashHasher<usize>>>>,
 }
@@ -65,6 +75,7 @@ impl<'arena, 'token_ref> Parser<'arena, 'token_ref, BaseParser> {
             depth: Cell::new(0),
             position: Cell::new(0),
             has_range_operator,
+            failed_intervals: RefCell::default(),
             node_metadata: None,
             marker_flavor: PhantomData,
         })
@@ -78,6 +89,7 @@ impl<'arena, 'token_ref> Parser<'arena, 'token_ref, BaseParser> {
             depth: self.depth,
             position: self.position,
             has_range_operator: self.has_range_operator,
+            failed_intervals: self.failed_intervals,
             node_metadata: self.node_metadata,
             marker_flavor: PhantomData,
         }
@@ -91,6 +103,7 @@ impl<'arena, 'token_ref> Parser<'arena, 'token_ref, BaseParser> {
             depth: self.depth,
             position: self.position,
             has_range_operator: self.has_range_operator,
+            failed_intervals: self.failed_intervals,
             node_metadata: self.node_metadata,
             marker_flavor: PhantomData,
         }
@@ -836,6 +849,28 @@ impl<'arena, 'token_ref, Flavor> Parser<'arena, 'token_ref, Flavor> {
         };
 
         let initial_position = self.position();
+        let attempt = (initial_position, self.depth());
+        let recorded = self.failed_intervals.borrow().get(&attempt).copied();
+        if let Some(failed_at) = recorded {
+            self.set_position(failed_at);
+            return None;
+        }
+
+        let node = self.interval_attempt(expression_parser, initial_position);
+        if node.is_none() {
+            self.failed_intervals.borrow_mut().insert(attempt, self.position());
+        }
+        node
+    }
+
+    fn interval_attempt<F>(
+        &self,
+        expression_parser: &F,
+        initial_position: usize,
+    ) -> Option<&'arena Node<'arena>>
+    where
+        F: Fn(ParserContext) -> &'arena Node<'arena>,
+    {
         let TokenKind::Bracket(left_bracket) = &self.current()?.kind else {
             self.set_position(initial_position);
             return None;
