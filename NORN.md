@@ -132,6 +132,7 @@ lists the full downstream delta.
 | `norn-v2.0.1-7` | head of the C8/C9 PR | C8 (`json-schema`; the zen-engine Norn profile has no jsonschema and no getrandom on wasm32) and C9 (`ts-types`; no swc parser or MPL-2.0 smartstring in the Norn profile), plus CI assertions for both (T3-DEC-2, Norn-cloud/norn-platform#2670) |
 | `norn-v2.0.1-8` | `c4e6683799419bc74d4850afd78e4bf743cbbbf9` | S5 deterministic temporal ordering and pure arithmetic (same-kind date/timestamp ordering, checked arithmetic 0001–9999, metered; ambient-clock temporal functions excluded) and C10 (CI Android SDK setup); reviewed in Norn-cloud/zen#10, Astra approve (Norn-cloud/norn-platform#3112) |
 | `norn-v2.0.1-9` | `cc30eb5c0d2acc3f989e18fd0458fc910697b6ab` | S6: an empty template literal no longer underflows the `Join` opcode (panic under overflow checks; release results and metering counts unchanged, no profile identity change); reviewed in Norn-cloud/zen#12, gpt-6.1-sol approve (found by Norn-cloud/norn-platform#3243) |
+| `norn-v2.0.1-10` | `85b234cadb9d79ba7f56b21ccdf528b170e2bba4` | C11: top-level expression parses are memoized, so speculative parser retries (interval, array, group, assignment key) no longer take exponential time in bracket nesting (parse results and diagnostics unchanged, no profile identity change); reviewed in Norn-cloud/zen#14, gpt-6.1-sol approve after one round (found by Norn-cloud/norn-platform#3243) |
 
 ## Feature matrix (`zen-engine`)
 
