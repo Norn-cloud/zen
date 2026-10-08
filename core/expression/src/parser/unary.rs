@@ -132,8 +132,17 @@ impl<'arena, 'token_ref> Parser<'arena, 'token_ref, Unary> {
         left_node
     }
 
-    #[cfg_attr(not(target_family = "wasm"), recursive::recursive)]
     fn binary_expression(&self, precedence: u8, ctx: ParserContext) -> &'arena Node<'arena> {
+        if precedence == 0 {
+            let closure = ctx == ParserContext::Closure;
+            return self.memoized_expression(closure, || self.binary_expression_at(0, ctx));
+        }
+
+        self.binary_expression_at(precedence, ctx)
+    }
+
+    #[cfg_attr(not(target_family = "wasm"), recursive::recursive)]
+    fn binary_expression_at(&self, precedence: u8, ctx: ParserContext) -> &'arena Node<'arena> {
         let mut node_left = self.unary_expression();
         let Some(mut token) = self.current() else {
             return node_left;

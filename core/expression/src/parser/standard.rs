@@ -19,8 +19,16 @@ impl<'arena, 'token_ref> Parser<'arena, 'token_ref, Standard> {
         }
     }
 
-    #[cfg_attr(not(target_family = "wasm"), recursive::recursive)]
     fn binary_expression(&self, precedence: u8) -> &'arena Node<'arena> {
+        if precedence == 0 {
+            return self.memoized_expression(false, || self.binary_expression_at(0));
+        }
+
+        self.binary_expression_at(precedence)
+    }
+
+    #[cfg_attr(not(target_family = "wasm"), recursive::recursive)]
+    fn binary_expression_at(&self, precedence: u8) -> &'arena Node<'arena> {
         let mut node_left = self.unary_expression();
         let Some(mut token) = self.current() else {
             return node_left;

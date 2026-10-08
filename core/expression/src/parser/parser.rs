@@ -13,7 +13,7 @@ use bumpalo::Bump;
 use nohash_hasher::BuildNoHashHasher;
 use rust_decimal::Decimal;
 use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::ops::Deref;
@@ -44,6 +44,10 @@ pub struct Parser<'arena, 'token_ref, Flavor> {
     depth: Cell<u8>,
     marker_flavor: PhantomData<Flavor>,
     has_range_operator: bool,
+    /// Results of top-level (precedence 0) expression parses, keyed by
+    /// `(token position, closure depth, closure context)`, with the position
+    /// each parse ended at. See [`Parser::memoized_expression`].
+    parsed_expressions: RefCell<BTreeMap<(usize, u8, bool), (&'arena Node<'arena>, usize)>>,
     pub(crate) node_metadata:
         Option<RefCell<HashMap<usize, NodeMetadata, BuildNoHashHasher<usize>>>>,
 }
@@ -65,6 +69,7 @@ impl<'arena, 'token_ref> Parser<'arena, 'token_ref, BaseParser> {
             depth: Cell::new(0),
             position: Cell::new(0),
             has_range_operator,
+            parsed_expressions: RefCell::default(),
             node_metadata: None,
             marker_flavor: PhantomData,
         })
@@ -78,6 +83,7 @@ impl<'arena, 'token_ref> Parser<'arena, 'token_ref, BaseParser> {
             depth: self.depth,
             position: self.position,
             has_range_operator: self.has_range_operator,
+            parsed_expressions: self.parsed_expressions,
             node_metadata: self.node_metadata,
             marker_flavor: PhantomData,
         }
@@ -91,6 +97,7 @@ impl<'arena, 'token_ref> Parser<'arena, 'token_ref, BaseParser> {
             depth: self.depth,
             position: self.position,
             has_range_operator: self.has_range_operator,
+            parsed_expressions: self.parsed_expressions,
             node_metadata: self.node_metadata,
             marker_flavor: PhantomData,
         }
@@ -152,6 +159,38 @@ impl<'arena, 'token_ref, Flavor> Parser<'arena, 'token_ref, Flavor> {
 
     pub(crate) fn depth(&self) -> u8 {
         self.depth.get()
+    }
+
+    /// Parses a top-level expression once per `(token position, closure
+    /// depth, context)` and replays the recorded node and end position on a
+    /// repeated request (C11).
+    ///
+    /// Several productions parse speculatively and rewind on failure: an
+    /// interval is tried at every `[` or `(` (from the unary path and again
+    /// from the literal path) before the array or group parse, and an
+    /// assignment statement parses its key before it knows whether `=`
+    /// follows. Each retry re-parsed the bracketed content, so parse time grew
+    /// exponentially with nesting. Every bracket body is parsed through this
+    /// entry point, so a retry now reuses the earlier result. The parse is a
+    /// pure function of the key within one parser flavor: it reads only the
+    /// tokens from that position, the closure depth (for `#`) and the context.
+    pub(crate) fn memoized_expression(
+        &self,
+        closure: bool,
+        parse: impl FnOnce() -> &'arena Node<'arena>,
+    ) -> &'arena Node<'arena> {
+        let key = (self.position(), self.depth(), closure);
+        let recorded = self.parsed_expressions.borrow().get(&key).copied();
+        if let Some((node, end)) = recorded {
+            self.set_position(end);
+            return node;
+        }
+
+        let node = parse();
+        self.parsed_expressions
+            .borrow_mut()
+            .insert(key, (node, self.position()));
+        node
     }
 
     pub(crate) fn is_done(&self) -> bool {
