@@ -1081,7 +1081,7 @@ fn empty_template_literal_is_empty_string_instead_of_panicking() {
 }
 
 #[test]
-fn nested_brackets_beside_a_range_parse_without_exponential_backtracking() {
+fn speculative_parses_reuse_nested_bracket_results() {
     let mut isolate = Isolate::new();
 
     // Coverage-guided input from Norn-cloud/norn-platform#3243 that took more
@@ -1098,7 +1098,10 @@ fn nested_brackets_beside_a_range_parse_without_exponential_backtracking() {
     assert_eq!(isolate.run_standard(&source).unwrap(), Variable::Bool(true));
 
     let grouped = format!("{}1{} in [0..2]", "(".repeat(depth), ")".repeat(depth));
-    assert_eq!(isolate.run_standard(&grouped).unwrap(), Variable::Bool(true));
+    assert_eq!(
+        isolate.run_standard(&grouped).unwrap(),
+        Variable::Bool(true)
+    );
 
     let unclosed = format!("1 in [0..2] and {}", "[".repeat(depth));
     assert!(isolate.run_standard(&unclosed).is_err());
@@ -1106,4 +1109,13 @@ fn nested_brackets_beside_a_range_parse_without_exponential_backtracking() {
     isolate.set_reference("1").unwrap();
     let unary = format!("[0..2] or {}1{} == 1", "[".repeat(depth), "]".repeat(depth));
     let _ = isolate.run_unary(&unary);
+
+    // An assignment statement parses its key speculatively and re-parses it as
+    // the result expression when no `=` follows, which doubled the work per
+    // nesting level without any range operator.
+    let mut chained = String::from("0");
+    for _ in 0..depth {
+        chained = format!("a = 1; b[{chained}]");
+    }
+    let _ = isolate.run_standard(&chained);
 }

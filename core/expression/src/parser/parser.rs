@@ -44,16 +44,10 @@ pub struct Parser<'arena, 'token_ref, Flavor> {
     depth: Cell<u8>,
     marker_flavor: PhantomData<Flavor>,
     has_range_operator: bool,
-    /// `(token position, closure depth)` pairs where an interval attempt has
-    /// already failed, with the position the failed attempt left behind.
-    /// Interval parsing is speculative: on failure the caller re-parses the
-    /// same tokens as an array or a parenthesised expression, and the unary
-    /// path and the literal path both try it. Without this memo every nested
-    /// bracket multiplied the work, so parse time grew exponentially with
-    /// nesting (C11). The outcome of an attempt depends only on these two values
-    /// within one parser flavor, so a repeated attempt replays the recorded
-    /// failure instead of re-parsing.
-    failed_intervals: RefCell<BTreeMap<(usize, u8), usize>>,
+    /// Results of top-level (precedence 0) expression parses, keyed by
+    /// `(token position, closure depth, closure context)`, with the position
+    /// each parse ended at. See [`Parser::memoized_expression`].
+    parsed_expressions: RefCell<BTreeMap<(usize, u8, bool), (&'arena Node<'arena>, usize)>>,
     pub(crate) node_metadata:
         Option<RefCell<HashMap<usize, NodeMetadata, BuildNoHashHasher<usize>>>>,
 }
@@ -75,7 +69,7 @@ impl<'arena, 'token_ref> Parser<'arena, 'token_ref, BaseParser> {
             depth: Cell::new(0),
             position: Cell::new(0),
             has_range_operator,
-            failed_intervals: RefCell::default(),
+            parsed_expressions: RefCell::default(),
             node_metadata: None,
             marker_flavor: PhantomData,
         })
@@ -89,7 +83,7 @@ impl<'arena, 'token_ref> Parser<'arena, 'token_ref, BaseParser> {
             depth: self.depth,
             position: self.position,
             has_range_operator: self.has_range_operator,
-            failed_intervals: self.failed_intervals,
+            parsed_expressions: self.parsed_expressions,
             node_metadata: self.node_metadata,
             marker_flavor: PhantomData,
         }
@@ -103,7 +97,7 @@ impl<'arena, 'token_ref> Parser<'arena, 'token_ref, BaseParser> {
             depth: self.depth,
             position: self.position,
             has_range_operator: self.has_range_operator,
-            failed_intervals: self.failed_intervals,
+            parsed_expressions: self.parsed_expressions,
             node_metadata: self.node_metadata,
             marker_flavor: PhantomData,
         }
@@ -165,6 +159,38 @@ impl<'arena, 'token_ref, Flavor> Parser<'arena, 'token_ref, Flavor> {
 
     pub(crate) fn depth(&self) -> u8 {
         self.depth.get()
+    }
+
+    /// Parses a top-level expression once per `(token position, closure
+    /// depth, context)` and replays the recorded node and end position on a
+    /// repeated request (C11).
+    ///
+    /// Several productions parse speculatively and rewind on failure: an
+    /// interval is tried at every `[` or `(` (from the unary path and again
+    /// from the literal path) before the array or group parse, and an
+    /// assignment statement parses its key before it knows whether `=`
+    /// follows. Each retry re-parsed the bracketed content, so parse time grew
+    /// exponentially with nesting. Every bracket body is parsed through this
+    /// entry point, so a retry now reuses the earlier result. The parse is a
+    /// pure function of the key within one parser flavor: it reads only the
+    /// tokens from that position, the closure depth (for `#`) and the context.
+    pub(crate) fn memoized_expression(
+        &self,
+        closure: bool,
+        parse: impl FnOnce() -> &'arena Node<'arena>,
+    ) -> &'arena Node<'arena> {
+        let key = (self.position(), self.depth(), closure);
+        let recorded = self.parsed_expressions.borrow().get(&key).copied();
+        if let Some((node, end)) = recorded {
+            self.set_position(end);
+            return node;
+        }
+
+        let node = parse();
+        self.parsed_expressions
+            .borrow_mut()
+            .insert(key, (node, self.position()));
+        node
     }
 
     pub(crate) fn is_done(&self) -> bool {
@@ -849,28 +875,6 @@ impl<'arena, 'token_ref, Flavor> Parser<'arena, 'token_ref, Flavor> {
         };
 
         let initial_position = self.position();
-        let attempt = (initial_position, self.depth());
-        let recorded = self.failed_intervals.borrow().get(&attempt).copied();
-        if let Some(failed_at) = recorded {
-            self.set_position(failed_at);
-            return None;
-        }
-
-        let node = self.interval_attempt(expression_parser, initial_position);
-        if node.is_none() {
-            self.failed_intervals.borrow_mut().insert(attempt, self.position());
-        }
-        node
-    }
-
-    fn interval_attempt<F>(
-        &self,
-        expression_parser: &F,
-        initial_position: usize,
-    ) -> Option<&'arena Node<'arena>>
-    where
-        F: Fn(ParserContext) -> &'arena Node<'arena>,
-    {
         let TokenKind::Bracket(left_bracket) = &self.current()?.kind else {
             self.set_position(initial_position);
             return None;
