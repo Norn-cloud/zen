@@ -109,6 +109,22 @@ fn bounded_join_measures_input_before_scanning_it() {
     assert!(meter.scan_steps() < 1_000);
 }
 
+#[cfg(feature = "bounded-strings")]
+#[test]
+fn bounded_join_gates_large_empty_arrays_before_scanning() {
+    let parts = vec![String::new(); 1_000_000];
+    let meter = Meter::new(20);
+    let err = Isolate::with_environment(json!({ "parts": parts }).into())
+        .with_meter(Some(meter.clone()))
+        .run_standard("join(parts, '')")
+        .unwrap_err();
+    let failure = exhausted(err);
+    assert_eq!(failure.limit, 20);
+    assert!(failure.used > failure.limit);
+    assert_eq!(meter.exhausted(), Some(failure));
+    assert!(meter.scan_steps() <= 20);
+}
+
 #[test]
 fn large_interval_is_charged_before_it_is_materialized() {
     let meter = Meter::new(1_000);

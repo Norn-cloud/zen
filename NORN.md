@@ -162,7 +162,7 @@ The `bounded-strings` feature is default-off and adds three synchronous expressi
 - `take(text, maxScalars)` returns a UTF-8-safe prefix of at most `maxScalars` Unicode scalar values. The cap must be an integer in `0..=16384`; zero returns the empty string. The function preserves its input bytes and does not normalize text; callers normalize at their boundary.
 - `join(strings, separator)` joins a string array in order and refuses output over 16 KiB. It validates and measures the complete input before allocating, then appends once into a capacity-sized buffer.
 
-The Norn profile tests run with `regex-lite` on native and wasm32. Metering charges argument bytes before each builtin runs; `tokens` also charges its regex-compile unit and a second input-byte allowance for copied tokens, `take` charges up to `min(input bytes, 4 * maxScalars)` for output copying, and `join` charges a bounded recursive input walk plus output bytes. Metered counts and budget exhaustion are pinned across targets.
+The Norn profile tests run with `regex-lite` on native and wasm32. Metering charges argument bytes before each builtin runs; `tokens` also charges its regex-compile unit and a second input-byte allowance for copied tokens, `take` charges up to `min(input bytes, 4 * maxScalars)` for output copying, and `join` charges a bounded one-level list scan plus output bytes. Metered counts and budget exhaustion are pinned across targets.
 
 The Norn pure profile is `zen-engine = { ..., default-features = false }`. Its
 regex backend is `regex-lite`, either by fallback or by setting `regex-lite`
@@ -214,7 +214,7 @@ tracing, precompilation or the target. Constants live in `zen_expression::meter:
 | `matches`, `extract` | + 64 (regex compilation) on top of the argument sizes |
 | `tokens` | + 64 (fixed regex compilation) and up to one additional input-byte allowance for copied runs |
 | `take` | + up to `min(input bytes, 4 * maxScalars)` for output copying |
-| `join` | + recursive input size and bounded output-copy bytes; measurement stops at the remaining budget |
+| `join` | + bounded one-level list scan and output-copy bytes; measurement stops at the remaining budget |
 | `fuzzyMatch` | + deep size(subject) x size(pattern) |
 | `mergeDeep`, `Join` | + recursive size (`cost::deep_size_capped`); the walk stops once it exceeds the meter's remaining units, so measuring is itself bounded (-4) |
 | `Slice`, `In`, `Equal`, string `Add` | + size of the data they touch |

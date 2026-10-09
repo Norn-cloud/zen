@@ -1191,7 +1191,7 @@ impl VMInner<'_, '_> {
                     }
                     #[cfg(feature = "bounded-strings")]
                     FunctionKind::Internal(F::Join) => {
-                        let list_bytes = args.first().map(deep).unwrap_or(0);
+                        let list_bytes = args.first().map(nested).unwrap_or(0);
                         let separator_bytes = args.get(1).map(size).unwrap_or(0);
                         let separator_count = args
                             .first()
