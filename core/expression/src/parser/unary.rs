@@ -382,6 +382,12 @@ impl From<&Node<'_>> for UnaryNodeBehaviour {
                     InternalFunction::Matches => AsBoolean,
                     InternalFunction::FuzzyMatch => CompareWithReference(Equal),
                     InternalFunction::Split => CompareWithReference(In),
+                    #[cfg(feature = "bounded-strings")]
+                    InternalFunction::Tokens => CompareWithReference(In),
+                    #[cfg(feature = "bounded-strings")]
+                    InternalFunction::Take | InternalFunction::Join => {
+                        CompareWithReference(Equal)
+                    }
                     InternalFunction::IsNumeric => AsBoolean,
                     InternalFunction::Keys => CompareWithReference(In),
                     InternalFunction::Values => CompareWithReference(In),

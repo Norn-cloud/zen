@@ -1167,6 +1167,44 @@ impl VMInner<'_, '_> {
                 let start = self.stack.len().saturating_sub(*arg_count as usize);
                 let args = &self.stack[start..];
                 match kind {
+                    #[cfg(feature = "bounded-strings")]
+                    FunctionKind::Internal(F::Tokens) => {
+                        let input_bytes = args.first().map(size).unwrap_or(0);
+                        REGEX_COMPILE
+                            .saturating_add(sum(args, &size))
+                            .saturating_add(input_bytes)
+                    }
+                    #[cfg(feature = "bounded-strings")]
+                    FunctionKind::Internal(F::Take) => {
+                        let input_bytes = args.first().map(size).unwrap_or(0);
+                        let max_scalars = args
+                            .get(1)
+                            .and_then(Variable::as_number)
+                            .and_then(|value| value.to_usize())
+                            .unwrap_or(crate::functions::MAX_TAKE_SCALARS)
+                            .min(crate::functions::MAX_TAKE_SCALARS);
+                        let output_bytes = u64::try_from(max_scalars)
+                            .unwrap_or(u64::MAX)
+                            .saturating_mul(4)
+                            .min(input_bytes);
+                        sum(args, &size).saturating_add(output_bytes)
+                    }
+                    #[cfg(feature = "bounded-strings")]
+                    FunctionKind::Internal(F::Join) => {
+                        let list_bytes = args.first().map(nested).unwrap_or(0);
+                        let separator_bytes = args.get(1).map(size).unwrap_or(0);
+                        let separator_count = args
+                            .first()
+                            .and_then(Variable::as_array)
+                            .map(|values| {
+                                u64::try_from(values.borrow().len().saturating_sub(1))
+                                    .unwrap_or(u64::MAX)
+                            })
+                            .unwrap_or(0);
+                        sum(args, &size)
+                            .saturating_add(list_bytes.saturating_mul(2))
+                            .saturating_add(separator_bytes.saturating_mul(separator_count))
+                    }
                     FunctionKind::Internal(F::Matches | F::Extract) => {
                         REGEX_COMPILE.saturating_add(sum(args, &size))
                     }

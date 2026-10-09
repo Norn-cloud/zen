@@ -180,7 +180,7 @@ pub mod cost {
     }
 
     /// Recursive size, for builtins whose work is proportional to all nested data
-    /// (`mergeDeep`, `fuzzyMatch`, join). The walk stops once the total exceeds `cap`
+    /// (`mergeDeep`, `fuzzyMatch`). The walk stops once the total exceeds `cap`
     /// (the caller passes the meter's remaining units), so measuring is itself bounded
     /// by the budget; any result above `cap` is clamped to `cap + 1`. `steps` counts the
     /// values visited.

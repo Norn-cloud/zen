@@ -79,6 +79,52 @@ fn string_and_regex_builtins_are_charged_by_size() {
     assert_eq!(short.used() - plain.used(), 64);
 }
 
+#[cfg(feature = "bounded-strings")]
+#[test]
+fn bounded_string_builtins_charge_scans_and_result_copying() {
+    let short = cost_with("tokens(s, 'alnum', 256, 256)", json!({ "s": "a" }));
+    let long = cost_with("tokens(s, 'alnum', 256, 256)", json!({ "s": "a".repeat(40) }));
+    assert_eq!(long - short, 78);
+
+    let short = cost_with("take(s, 1)", json!({ "s": "a" }));
+    let long = cost_with("take(s, 1)", json!({ "s": "ab" }));
+    // Input bytes plus the maximum copied-prefix byte allowance.
+    assert_eq!(long - short, 2);
+
+    let short = cost_with("join(parts, '-')", json!({ "parts": ["a", "b"] }));
+    let long = cost_with("join(parts, '-')", json!({ "parts": ["a", "BBBB"] }));
+    assert_eq!(long - short, 6);
+}
+
+#[cfg(feature = "bounded-strings")]
+#[test]
+fn bounded_join_measures_input_before_scanning_it() {
+    let parts: Vec<String> = (0..1_000).map(|_| "x".to_owned()).collect();
+    let meter = Meter::new(20);
+    let err = Isolate::with_environment(json!({ "parts": parts }).into())
+        .with_meter(Some(meter.clone()))
+        .run_standard("join(parts, '-')")
+        .unwrap_err();
+    assert!(exhausted(err).used > 20);
+    assert!(meter.scan_steps() < 1_000);
+}
+
+#[cfg(feature = "bounded-strings")]
+#[test]
+fn bounded_join_gates_large_empty_arrays_before_scanning() {
+    let parts = vec![String::new(); 1_000_000];
+    let meter = Meter::new(20);
+    let err = Isolate::with_environment(json!({ "parts": parts }).into())
+        .with_meter(Some(meter.clone()))
+        .run_standard("join(parts, '')")
+        .unwrap_err();
+    let failure = exhausted(err);
+    assert_eq!(failure.limit, 20);
+    assert!(failure.used > failure.limit);
+    assert_eq!(meter.exhausted(), Some(failure));
+    assert!(meter.scan_steps() <= 20);
+}
+
 #[test]
 fn large_interval_is_charged_before_it_is_materialized() {
     let meter = Meter::new(1_000);
