@@ -54,10 +54,11 @@ Consumers pin a `norn-v2.0.1-N` **tag** (or its commit), never the moving branch
 | S4 | Feature `metering` (default **off**; on `zen-expression`, forwarded by `zen-engine`): a shared `Meter` (limit + counter) charged by every executed VM opcode (so every closure iteration of `map`/`filter`/`flatMap`/...), by data-proportional builtins and opcodes, and by zen-engine graph node visits, decision-table rows and transform-attributes loop elements. Running out fails with the typed `BudgetExhausted { limit, used }`: `VMError::BudgetExhausted` in an `Isolate`, `EvaluationError::BudgetExhausted` from `Decision::evaluate_metered`. The meter is sticky, and the graph evaluator checks it after every node, so an exhaustion swallowed inside a node (for example a non-strict table cell) still aborts the evaluation. See "Metering cost model". | Review F3: poll/depth/reset counts do not bound work. (norn-v2.0.1-3) |
 | S5 | Feature `deterministic-temporal` (default **off**; on `zen-expression`, forwarded by `zen-engine` and `zen-tmpl`, activates `zen-types::VariableType::Timestamp`): strict pure `date` / `timestamp` constructors, distinct calendar-date / UTC-instant values, total same-kind ordering and semantic equality, checked `days_between`, `add_days`, `seconds_between`, `add_seconds`. Disables upstream `d`, all deprecated temporal functions and all legacy date methods in this profile. | #3112 season-window ordering; no ambient clock, timezone or string coercion. Proposed `norn-v2.0.1-8`; qualification and tagging pending lead review. |
 | S6 | An empty template literal (`` `` ``, zero parts) evaluates to `""`. Upstream's `Join` opcode sizes its buffer with `separator.len() * (parts.len() - 1)`, which underflows for zero parts: it panics when overflow checks are on (debug and test builds) and wraps in release, where the empty `""` separator makes the product 0. The separator count now saturates and the capacity sum is saturating. | Panic fix, like S1. Release-build results and metering counts are unchanged, so the semantic profile identity does not change. Found by Norn's coverage-guided `zen_expression` fuzz target (Norn-cloud/norn-platform#3243). |
+| S7 | Default-off `bounded-strings` on `zen-expression`, forwarded by `zen-tmpl` and `zen-engine`, adds `tokens(text, 'alnum', maxCount, maxLength)`, `take(text, maxScalars)`, and `join(strings, separator)`. Tokens are the first capped maximal ASCII alphanumeric runs; `take` counts Unicode scalar values; join refuses output above 16 KiB. Caps are checked at runtime, the active regex backend is reused with a fixed pattern, and metering charges the data scanned/copied before execution. | #3116 needs deterministic, bounded string normalization primitives in Norn's pure profile without exposing arbitrary regular expressions. |
 
-The semantic patches S2 to S5 are **off by default**. The Norn profile enables them
+The semantic patches S2 to S5 and S7 are **off by default**. The Norn profile enables them
 explicitly, for example
-`zen-engine = { ..., default-features = false, features = ["strict-errors", "deterministic-maps", "metering"] }`.
+`zen-engine = { ..., default-features = false, features = ["strict-errors", "deterministic-maps", "metering", "bounded-strings"] }`.
 The general ban on randomness (`rand`) belongs to Norn's checker/admission.
 S5 closes the temporal runtime surface when explicitly enabled: its `date(text)`
 replaces the deprecated upstream numeric `date`, and upstream `d()` / date methods
@@ -151,6 +152,17 @@ lists the full downstream delta.
 | `deterministic-maps` | off | Norn semantic patch S3: insertion-ordered `VariableMap` at every size (`indexmap`). Also on `zen-expression` and `zen-types`. |
 | `deterministic-temporal` | off | Norn S5: pure typed temporal parsing, comparisons and checked arithmetic. Forwarded by zen-tmpl too. |
 | `metering` | off | Norn semantic patch S4: deterministic operation budget (`zen_engine::meter::Meter`, `Decision::evaluate_metered`). Also on `zen-expression` (`Isolate::set_meter`). |
+| `bounded-strings` | off | Norn S7: bounded ASCII token runs, Unicode-scalar prefixes, and bounded string joins. Forwarded by zen-tmpl too. |
+
+### Norn S7 bounded strings
+
+The `bounded-strings` feature is default-off and adds three synchronous expression builtins:
+
+- `tokens(text, 'alnum', maxCount, maxLength)` returns the first `maxCount` maximal ASCII `[A-Za-z0-9]+` runs, each truncated to `maxLength` bytes. `maxCount` and `maxLength` must be integers in `0..=256`; either zero yields an empty array. Non-ASCII scalars are separators. The fixed pattern uses the already-linked regex backend; arbitrary patterns are not exposed by this API.
+- `take(text, maxScalars)` returns a UTF-8-safe prefix of at most `maxScalars` Unicode scalar values. The cap must be an integer in `0..=16384`; zero returns the empty string. The function preserves its input bytes and does not normalize text; callers normalize at their boundary.
+- `join(strings, separator)` joins a string array in order and refuses output over 16 KiB. It validates and measures the complete input before allocating, then appends once into a capacity-sized buffer.
+
+The Norn profile tests run with `regex-lite` on native and wasm32. Metering charges argument bytes before each builtin runs; `tokens` also charges its regex-compile unit and a second input-byte allowance for copied tokens, `take` charges up to `min(input bytes, 4 * maxScalars)` for output copying, and `join` charges a bounded recursive input walk plus output bytes. Metered counts and budget exhaustion are pinned across targets.
 
 The Norn pure profile is `zen-engine = { ..., default-features = false }`. Its
 regex backend is `regex-lite`, either by fallback or by setting `regex-lite`
@@ -200,6 +212,9 @@ tracing, precompilation or the target. Constants live in `zen_expression::meter:
 | `CallFunction` / `CallMethod` | + shallow size of the arguments (string bytes, array/object length, else 1) |
 | `flatten`, `merge`, `Flatten` opcode | + outer length + shallow size of every direct child (`cost::nested_size_capped`) instead of the shallow size (-4). The outer length is counted first, and the child scan stops once the total exceeds the remaining budget; the result is clamped to `remaining + 1` (-5) |
 | `matches`, `extract` | + 64 (regex compilation) on top of the argument sizes |
+| `tokens` | + 64 (fixed regex compilation) and up to one additional input-byte allowance for copied runs |
+| `take` | + up to `min(input bytes, 4 * maxScalars)` for output copying |
+| `join` | + recursive input size and bounded output-copy bytes; measurement stops at the remaining budget |
 | `fuzzyMatch` | + deep size(subject) x size(pattern) |
 | `mergeDeep`, `Join` | + recursive size (`cost::deep_size_capped`); the walk stops once it exceeds the meter's remaining units, so measuring is itself bounded (-4) |
 | `Slice`, `In`, `Equal`, string `Add` | + size of the data they touch |
