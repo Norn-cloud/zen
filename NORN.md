@@ -58,7 +58,7 @@ Consumers pin a `norn-v2.0.1-N` **tag** (or its commit), never the moving branch
 
 The semantic patches S2 to S5 and S7 are **off by default**. The Norn profile enables them
 explicitly, for example
-`zen-engine = { ..., default-features = false, features = ["strict-errors", "deterministic-maps", "metering", "bounded-strings"] }`.
+`zen-engine = { ..., default-features = false, features = ["strict-errors", "deterministic-maps", "metering", "deterministic-temporal", "bounded-strings"] }`.
 The general ban on randomness (`rand`) belongs to Norn's checker/admission.
 S5 closes the temporal runtime surface when explicitly enabled: its `date(text)`
 replaces the deprecated upstream numeric `date`, and upstream `d()` / date methods
@@ -158,11 +158,11 @@ lists the full downstream delta.
 
 The `bounded-strings` feature is default-off and adds three synchronous expression builtins:
 
-- `tokens(text, 'alnum', maxCount, maxLength)` returns the first `maxCount` maximal ASCII `[A-Za-z0-9]+` runs, each truncated to `maxLength` bytes. `maxCount` and `maxLength` must be integers in `0..=256`; either zero yields an empty array. Non-ASCII scalars are separators. The fixed pattern uses the already-linked regex backend; arbitrary patterns are not exposed by this API.
-- `take(text, maxScalars)` returns a UTF-8-safe prefix of at most `maxScalars` Unicode scalar values. The cap must be an integer in `0..=16384`; zero returns the empty string. The function preserves its input bytes and does not normalize text; callers normalize at their boundary.
-- `join(strings, separator)` joins a string array in order and refuses output over 16 KiB. It validates and measures the complete input before allocating, then appends once into a capacity-sized buffer.
+- `tokens(text, 'alnum', maxCount, maxLength)` returns the first `maxCount` maximal ASCII `[A-Za-z0-9]+` runs. Every other scalar is a separator, including `_`, `-`, and spaces; case is preserved. The `'alnum'` mode is checked at runtime. `maxCount` and `maxLength` must be integers in `0..=256`; either zero yields an empty array. `maxLength` is a byte cap (equivalent to ASCII characters), and a longer run is truncated rather than split into additional tokens. Non-ASCII scalars are separators. This builtin does not normalize or case-fold; callers should NFC-normalize first when normalization-independent results are required. For example, NFC `AéB` gives `["A", "B"]`, while NFD `Ae\u{301}B` gives `["Ae", "B"]`. The fixed `[A-Za-z0-9]+` pattern reuses the active regex backend; either backend gives the same token results, although CI exercises this builtin with `regex-lite` only. Arbitrary patterns are not exposed by this API.
+- `take(text, maxScalars)` returns a prefix ending after at most `maxScalars` Unicode scalar values. The cap must be an integer in `0..=16384`; zero returns the empty string. It preserves the input bytes and does not normalize text. The boundary is UTF-8-safe but is not a grapheme boundary: it can separate a base letter from a combining mark, split a ZWJ emoji sequence, or split a flag. A prefix of 16,384 four-byte scalars can contain 65,536 UTF-8 bytes; `join`'s separate 16,384-byte limit does not apply to `take`.
+- `join(strings, separator)` joins a string array in order and refuses output above 16,384 UTF-8 bytes; the limit is inclusive. An empty list returns `""`, and non-string elements fail at runtime. It validates and measures the complete input before allocating, then appends once into a capacity-sized buffer.
 
-The Norn profile tests run with `regex-lite` on native and wasm32. Metering charges argument bytes before each builtin runs; `tokens` also charges its regex-compile unit and a second input-byte allowance for copied tokens, `take` charges up to `min(input bytes, 4 * maxScalars)` for output copying, and `join` charges a bounded one-level list scan plus output bytes. Metered counts and budget exhaustion are pinned across targets.
+The Norn profile tests run with `regex-lite` on native and wasm32. Metering charges shallow argument sizes before each builtin runs. `tokens` also charges 64 units for its fixed regex and one full additional input-byte allowance before scanning, even when the returned tokens are shorter; `take` charges `min(input bytes, 4 * maxScalars)` before copying. `join` charges a budget-bounded one-level scan of the list and its strings plus the separator bytes copied into the result. Metered counts and budget exhaustion are pinned across targets.
 
 The Norn pure profile is `zen-engine = { ..., default-features = false }`. Its
 regex backend is `regex-lite`, either by fallback or by setting `regex-lite`
@@ -212,8 +212,8 @@ tracing, precompilation or the target. Constants live in `zen_expression::meter:
 | `CallFunction` / `CallMethod` | + shallow size of the arguments (string bytes, array/object length, else 1) |
 | `flatten`, `merge`, `Flatten` opcode | + outer length + shallow size of every direct child (`cost::nested_size_capped`) instead of the shallow size (-4). The outer length is counted first, and the child scan stops once the total exceeds the remaining budget; the result is clamped to `remaining + 1` (-5) |
 | `matches`, `extract` | + 64 (regex compilation) on top of the argument sizes |
-| `tokens` | + 64 (fixed regex compilation) and up to one additional input-byte allowance for copied runs |
-| `take` | + up to `min(input bytes, 4 * maxScalars)` for output copying |
+| `tokens` | + 64 (fixed regex compilation) and one additional full input-byte allowance before scanning |
+| `take` | + `min(input bytes, 4 * maxScalars)` before output copying |
 | `join` | + bounded one-level list scan and output-copy bytes; measurement stops at the remaining budget |
 | `fuzzyMatch` | + deep size(subject) x size(pattern) |
 | `mergeDeep`, `Join` | + recursive size (`cost::deep_size_capped`); the walk stops once it exceeds the meter's remaining units, so measuring is itself bounded (-4) |
@@ -264,12 +264,13 @@ Default-feature upstream testing is retained on every OS.
    `cargo tree -e features --target wasm32-unknown-unknown -p zen-engine --no-default-features`
    must not mention `tokio` or `rquickjs`. Positive controls check that the default
    trees do, so the negative checks cannot pass vacuously.
-4. Semantic features on (`strict-errors`, `deterministic-maps`, `metering`): the
+4. Semantic features on (`strict-errors`, `deterministic-maps`, `metering`,
+   `bounded-strings`): the
    upstream suite plus Norn tests with default features, and the Norn tests in the pure
    profile. Upstream fixture tests that rely on the failing-cell fallback are ignored
    only under `strict-errors`.
 5. Norn profile on `wasm32-unknown-unknown`: `zen-engine` builds (release) with
-   `--no-default-features --features strict-errors,deterministic-maps,metering`, and that
+   `--no-default-features --features strict-errors,deterministic-maps,metering,deterministic-temporal,bounded-strings`, and that
    tree has no tokio, rquickjs or reqwest. `core/expression/tests/metering.rs` runs under
    `wasm-bindgen-test-runner` (CLI version read from `Cargo.lock`) and must hit the
    same pinned counts as the native run. zen-expression's `criterion` dev-dependency
