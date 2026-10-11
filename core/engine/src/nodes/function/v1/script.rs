@@ -38,9 +38,9 @@ impl Script {
                 "main",
                 "import 'internals'; globalThis.now = Date.now();",
             )
-            .unwrap()
+            .expect("failed to evaluate function prelude")
             .finish::<()>()
-            .unwrap();
+            .expect("failed to finish function prelude");
 
             let _ = ctx
                 .globals()
