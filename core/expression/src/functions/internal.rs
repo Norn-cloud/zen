@@ -24,6 +24,12 @@ pub enum InternalFunction {
     Extract,
     FuzzyMatch,
     Split,
+    #[cfg(feature = "bounded-strings")]
+    Tokens,
+    #[cfg(feature = "bounded-strings")]
+    Take,
+    #[cfg(feature = "bounded-strings")]
+    Join,
 
     // Math
     Abs,
@@ -176,6 +182,33 @@ impl From<&InternalFunction> for Rc<dyn FunctionDefinition> {
                 signature: FunctionSignature {
                     parameters: vec![VT::String, VT::String],
                     return_type: VT::String.array(),
+                },
+            }),
+
+            #[cfg(feature = "bounded-strings")]
+            IF::Tokens => Rc::new(StaticFunction {
+                implementation: Rc::new(imp::tokens),
+                signature: FunctionSignature {
+                    parameters: vec![VT::String, VT::String, VT::Number, VT::Number],
+                    return_type: VT::String.array(),
+                },
+            }),
+
+            #[cfg(feature = "bounded-strings")]
+            IF::Take => Rc::new(StaticFunction {
+                implementation: Rc::new(imp::take),
+                signature: FunctionSignature {
+                    parameters: vec![VT::String, VT::Number],
+                    return_type: VT::String,
+                },
+            }),
+
+            #[cfg(feature = "bounded-strings")]
+            IF::Join => Rc::new(StaticFunction {
+                implementation: Rc::new(imp::join),
+                signature: FunctionSignature {
+                    parameters: vec![VT::String.array(), VT::String],
+                    return_type: VT::String,
                 },
             }),
 
@@ -351,6 +384,8 @@ impl From<&InternalFunction> for Rc<dyn FunctionDefinition> {
 
 pub(crate) mod imp {
     use crate::functions::arguments::Arguments;
+    #[cfg(feature = "bounded-strings")]
+    use crate::functions::{MAX_JOIN_BYTES, MAX_TAKE_SCALARS, MAX_TOKEN_BYTES, MAX_TOKEN_COUNT};
     use crate::vm::date::DynamicVariableExt;
     use crate::vm::VmDate;
     use crate::{Variable as V, Variable};
@@ -369,6 +404,16 @@ pub(crate) mod imp {
     use std::collections::BTreeMap;
     use std::rc::Rc;
     use std::str::FromStr;
+
+    #[cfg(feature = "bounded-strings")]
+    fn bounded_integer(value: Decimal, name: &str, max: usize) -> anyhow::Result<usize> {
+        anyhow::ensure!(value.fract().is_zero(), "{name} must be an integer");
+        let value = value
+            .to_usize()
+            .with_context(|| format!("{name} must be between 0 and {max}"))?;
+        anyhow::ensure!(value <= max, "{name} must be between 0 and {max}");
+        Ok(value)
+    }
 
     fn __internal_number_array(args: &Arguments, pos: usize) -> anyhow::Result<Vec<Decimal>> {
         let a = args.array(pos)?;
@@ -483,6 +528,78 @@ pub(crate) mod imp {
         );
 
         Ok(V::from_array(arr))
+    }
+
+    #[cfg(feature = "bounded-strings")]
+    pub fn tokens(args: Arguments) -> anyhow::Result<V> {
+        let text = args.str(0)?;
+        anyhow::ensure!(args.str(1)? == "alnum", "tokens mode must be 'alnum'");
+        let max_count = bounded_integer(args.number(2)?, "maxCount", MAX_TOKEN_COUNT)?;
+        let max_bytes = bounded_integer(args.number(3)?, "maxLength", MAX_TOKEN_BYTES)?;
+        if max_count == 0 || max_bytes == 0 {
+            return Ok(V::from_array(Vec::new()));
+        }
+
+        // The fixed pattern reuses the active regex backend without admitting
+        // arbitrary tenant patterns. Every match is ASCII, so byte truncation
+        // cannot split a UTF-8 scalar.
+        let regex = Regex::new(r"[A-Za-z0-9]+")?;
+        let tokens = regex
+            .find_iter(text)
+            .take(max_count)
+            .map(|matched| {
+                let token = matched.as_str();
+                V::String(token[..token.len().min(max_bytes)].into())
+            })
+            .collect();
+        Ok(V::from_array(tokens))
+    }
+
+    #[cfg(feature = "bounded-strings")]
+    pub fn take(args: Arguments) -> anyhow::Result<V> {
+        let text = args.str(0)?;
+        let max_scalars = bounded_integer(args.number(1)?, "maxScalars", MAX_TAKE_SCALARS)?;
+        let end = text
+            .char_indices()
+            .nth(max_scalars)
+            .map_or(text.len(), |(offset, _)| offset);
+        Ok(V::String(text[..end].into()))
+    }
+
+    #[cfg(feature = "bounded-strings")]
+    pub fn join(args: Arguments) -> anyhow::Result<V> {
+        let values = args.array(0)?;
+        let values = values.borrow();
+        let separator = args.str(1)?;
+
+        // Validate and size before allocating, so both the work and output are
+        // bounded independently of the caller's input shape.
+        let item_bytes = values.iter().try_fold(0_usize, |total, value| {
+            let text = value.as_str().context("join expects only strings")?;
+            total
+                .checked_add(text.len())
+                .context("join output length overflow")
+        })?;
+        let separator_bytes = separator
+            .len()
+            .checked_mul(values.len().saturating_sub(1))
+            .context("join output length overflow")?;
+        let capacity = item_bytes
+            .checked_add(separator_bytes)
+            .context("join output length overflow")?;
+        anyhow::ensure!(
+            capacity <= MAX_JOIN_BYTES,
+            "join output exceeds {MAX_JOIN_BYTES} bytes"
+        );
+
+        let mut output = String::with_capacity(capacity);
+        for (index, value) in values.iter().enumerate() {
+            if index > 0 {
+                output.push_str(separator);
+            }
+            output.push_str(value.as_str().context("join expects only strings")?);
+        }
+        Ok(V::String(output.into()))
     }
 
     pub fn flatten(args: Arguments) -> anyhow::Result<V> {

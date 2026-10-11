@@ -16,6 +16,15 @@ pub(crate) mod internal;
 mod method;
 pub(crate) mod registry;
 
+#[cfg(feature = "bounded-strings")]
+pub(crate) const MAX_TOKEN_COUNT: usize = 256;
+#[cfg(feature = "bounded-strings")]
+pub(crate) const MAX_TOKEN_BYTES: usize = 256;
+#[cfg(feature = "bounded-strings")]
+pub(crate) const MAX_TAKE_SCALARS: usize = 16_384;
+#[cfg(feature = "bounded-strings")]
+pub(crate) const MAX_JOIN_BYTES: usize = 16_384;
+
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum FunctionKind {
     Internal(InternalFunction),

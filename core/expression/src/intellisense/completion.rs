@@ -241,6 +241,12 @@ fn function_info(fk: &FunctionKind) -> String {
             InternalFunction::Split => {
                 "Splits a string into an array of substrings using the specified delimiter"
             }
+            #[cfg(feature = "bounded-strings")]
+            InternalFunction::Tokens => "Finds bounded ASCII alphanumeric runs in a string",
+            #[cfg(feature = "bounded-strings")]
+            InternalFunction::Take => "Returns a bounded prefix measured in Unicode scalars",
+            #[cfg(feature = "bounded-strings")]
+            InternalFunction::Join => "Joins a bounded array of strings with a separator",
             InternalFunction::Abs => "Returns the absolute value of a number",
             InternalFunction::Sum => "Returns the sum of all elements in the input array",
             InternalFunction::Avg => "Calculates the average of all elements in the input array",
@@ -344,6 +350,12 @@ fn function_param_names(fk: &FunctionKind) -> Vec<&'static str> {
             InternalFunction::Matches | InternalFunction::Extract => vec!["str", "pattern"],
             InternalFunction::FuzzyMatch => vec!["haystack", "needle"],
             InternalFunction::Split => vec!["str", "delimiter"],
+            #[cfg(feature = "bounded-strings")]
+            InternalFunction::Tokens => vec!["str", "mode", "maxCount", "maxLength"],
+            #[cfg(feature = "bounded-strings")]
+            InternalFunction::Take => vec!["str", "maxScalars"],
+            #[cfg(feature = "bounded-strings")]
+            InternalFunction::Join => vec!["strings", "separator"],
             InternalFunction::Abs | InternalFunction::Floor | InternalFunction::Ceil => {
                 vec!["num"]
             }

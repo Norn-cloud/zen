@@ -41,7 +41,7 @@ Consumers pin a `norn-v2.0.1-N` **tag** (or its commit), never the moving branch
 | C7 | `ahash` is a workspace dependency with `default-features = false` (`std`, `no-rng`). A new `runtime-rng` feature (default on) on `zen-types`, `zen-expression`, `zen-tmpl` and `zen-engine` re-enables `ahash/runtime-rng`, so default builds seed ahash maps from the OS RNG exactly as upstream. Without it ahash uses its fixed seeds. | Before this, `zen-expression` alone did not build for `wasm32-unknown-unknown`: ahash's default `runtime-rng` pulled getrandom 0.3, which needs a JS entropy import there (zen-engine only built because jsonschema enables getrandom `wasm_js`). With `deterministic-maps` no observable order depends on the seed. Maps keyed by untrusted input lose seed randomization in the pure profile, so Norn bounds input size and work at its own boundary. |
 | C8 | `zen-engine`: jsonschema (input/output node `schema` validation, Draft 7) is optional behind the new `json-schema` feature (default on; `schema-resolvers` implies it). Without it a node whose `schema` decodes (root or sub-decision graph, input or output node) is never silently unvalidated: evaluation fails at that node with the typed `zen_engine::SchemaCompileError { unresolved_reference: false, .. }`, delivered as the `source` of `EvaluationError::NodeError`, and no schema dictionary or import is resolved or loaded. Caveat (upstream decoder, unchanged): `schema` text that is not valid JSON decodes to no schema in every build, so a consumer that must refuse node schemas checks the raw text at its own admission (Norn's `norn-decisions` refuses any non-blank node `schema`). The public `nodes::variable_json` module (the jsonschema adapter) exists only with the feature. | jsonschema enables getrandom `wasm_js` on wasm32, so the zen-engine Norn profile could not build without a JS entropy import (Norn's `zen-dependency-tree` gate forbids getrandom on wasm32). Norn validates decision input and output against its own closed RuleIR schemas with exact decimals and rejects node-level schemas at admission (T3-DEC-2). (norn-v2.0.1-7) |
 | C9 | `zen-engine`: the swc TypeScript parser (`swc_common`, `swc_ecma_parser`, `swc_ecma_ast`) is optional behind the new `ts-types` feature (default on; `js` implies it). It parses the TypeScript type declarations of function nodes in workspace analysis. Without it a declared function type is not parsed and stays unresolved, exactly like a function without a declaration. C8 also moves `typed-arena` and `self_cell` (used only by the jsonschema adapter) behind `json-schema`. | The parser is large and unused by a profile that rejects function nodes, and `swc_ecma_parser` pulls `smartstring` (MPL-2.0), which Norn's license policy does not admit. (norn-v2.0.1-7) |
-| C10 | UniFFI Android packaging CI pins `android-actions/setup-android` v4 at `be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd`, with command-line tools 16.0 and `platform-tools`. | Upstream v2 always requests Google's removed SDK `tools` package and fails before AAR assembly. CI maintenance only; no crate or evaluation change. Proposed with `norn-v2.0.1-8`. |
+| C10 | UniFFI Android packaging CI pins `android-actions/setup-android` v4 at `be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd`, with command-line tools 16.0 and `platform-tools`. | Upstream v2 always requests Google's removed SDK `tools` package and fails before AAR assembly. CI maintenance only; no crate or evaluation change. Released with `norn-v2.0.1-8`. |
 | C11 | `zen-expression` parser: every top-level (precedence 0) expression parse is memoized per (token position, closure depth, closure context), together with the position it ended at, and a repeated request replays the recorded node and position. | Several productions parse speculatively and rewind: an interval is tried at `[` (twice: unary path and literal path) and at `(` before the array or group parse, and an assignment statement parses its key before it knows whether `=` follows. Each retry re-parsed the bracketed content, so parse time grew exponentially with nesting: a 60-byte input took more than 10 s, and `a = 1; b[a = 1; b[...]]` doubled per level with no range operator. Every bracket body goes through the memoized entry point, so parse time is now polynomial. Parse results and diagnostics are unchanged. Found by Norn's coverage-guided `zen_expression` fuzz target and the PR review (Norn-cloud/norn-platform#3243). |
 
 ### Semantic patches
@@ -52,12 +52,13 @@ Consumers pin a `norn-v2.0.1-N` **tag** (or its commit), never the moving branch
 | S2 | Feature `strict-errors` (default **off**): a decision-table input cell that fails to evaluate or is not a boolean, a failing output cell of a matching row, and a switch condition that fails or is not a boolean abort evaluation with the typed `zen_engine::StrictEvaluationError { site, id, expression, message }` (`site`: `DecisionTableInput` / `DecisionTableOutput` / `SwitchCondition`), delivered as the `source` of `EvaluationError::NodeError`. Upstream (feature off) turns these into a non-match, a dropped row result, or a false condition. Applies to both hit policies, traced and untraced evaluation. Strict evaluation does not use the decision-table index, because the index would prune a failing cell without evaluating it (-4). A sub-decision's error stays in the source chain (the decision node's `source` is the child `EvaluationError`), so callers can downcast through it to `StrictEvaluationError` (-4; applies with the feature off too, and the message text is unchanged). Four upstream fixture tests that depend on the fallback are ignored when the feature is on. | Review F4: a failing deny row must not yield a fallback result, and a failing switch branch must not fall through. (norn-v2.0.1-3) |
 | S3 | Feature `deterministic-maps` (default **off**, on `zen-types`; forwarded by `zen-expression` and `zen-engine`): above the 32-key small-map threshold `VariableMap` uses an insertion-ordered `indexmap::IndexMap` (removal is order-preserving `shift_remove`) instead of an ahash `HashMap`. Iteration order is insertion order at every size, so `keys`, `values`, serialization and every other walk are independent of hash seeds. The engine's `$nodes` object is built in graph node order. | Review F1: eight equivalent 40-key inputs produced eight `keys` orders. (norn-v2.0.1-3) |
 | S4 | Feature `metering` (default **off**; on `zen-expression`, forwarded by `zen-engine`): a shared `Meter` (limit + counter) charged by every executed VM opcode (so every closure iteration of `map`/`filter`/`flatMap`/...), by data-proportional builtins and opcodes, and by zen-engine graph node visits, decision-table rows and transform-attributes loop elements. Running out fails with the typed `BudgetExhausted { limit, used }`: `VMError::BudgetExhausted` in an `Isolate`, `EvaluationError::BudgetExhausted` from `Decision::evaluate_metered`. The meter is sticky, and the graph evaluator checks it after every node, so an exhaustion swallowed inside a node (for example a non-strict table cell) still aborts the evaluation. See "Metering cost model". | Review F3: poll/depth/reset counts do not bound work. (norn-v2.0.1-3) |
-| S5 | Feature `deterministic-temporal` (default **off**; on `zen-expression`, forwarded by `zen-engine` and `zen-tmpl`, activates `zen-types::VariableType::Timestamp`): strict pure `date` / `timestamp` constructors, distinct calendar-date / UTC-instant values, total same-kind ordering and semantic equality, checked `days_between`, `add_days`, `seconds_between`, `add_seconds`. Disables upstream `d`, all deprecated temporal functions and all legacy date methods in this profile. | #3112 season-window ordering; no ambient clock, timezone or string coercion. Proposed `norn-v2.0.1-8`; qualification and tagging pending lead review. |
+| S5 | Feature `deterministic-temporal` (default **off**; on `zen-expression`, forwarded by `zen-engine` and `zen-tmpl`, activates `zen-types::VariableType::Timestamp`): strict pure `date` / `timestamp` constructors, distinct calendar-date / UTC-instant values, total same-kind ordering and semantic equality, checked `days_between`, `add_days`, `seconds_between`, `add_seconds`. Disables upstream `d`, all deprecated temporal functions and all legacy date methods in this profile. | #3112 season-window ordering; no ambient clock, timezone or string coercion. Qualified and released as `norn-v2.0.1-8` after fork CI and lead review. |
 | S6 | An empty template literal (`` `` ``, zero parts) evaluates to `""`. Upstream's `Join` opcode sizes its buffer with `separator.len() * (parts.len() - 1)`, which underflows for zero parts: it panics when overflow checks are on (debug and test builds) and wraps in release, where the empty `""` separator makes the product 0. The separator count now saturates and the capacity sum is saturating. | Panic fix, like S1. Release-build results and metering counts are unchanged, so the semantic profile identity does not change. Found by Norn's coverage-guided `zen_expression` fuzz target (Norn-cloud/norn-platform#3243). |
+| S7 | Default-off `bounded-strings` on `zen-expression`, forwarded by `zen-tmpl` and `zen-engine`, adds `tokens(text, 'alnum', maxCount, maxLength)`, `take(text, maxScalars)`, and `join(strings, separator)`. Tokens are the first capped maximal ASCII alphanumeric runs; `take` counts Unicode scalar values; join refuses output above 16 KiB. Caps are checked at runtime, the active regex backend is reused with a fixed pattern, and metering charges the data scanned/copied before execution. | #3116 needs deterministic, bounded string normalization primitives in Norn's pure profile without exposing arbitrary regular expressions. Proposed `norn-v2.0.1-11`; fork qualification, lead review and tagging are pending. |
 
-The semantic patches S2 to S5 are **off by default**. The Norn profile enables them
+The semantic patches S2 to S5 and S7 are **off by default**. The Norn profile enables them
 explicitly, for example
-`zen-engine = { ..., default-features = false, features = ["strict-errors", "deterministic-maps", "metering"] }`.
+`zen-engine = { ..., default-features = false, features = ["strict-errors", "deterministic-maps", "metering", "deterministic-temporal", "bounded-strings"] }`.
 The general ban on randomness (`rand`) belongs to Norn's checker/admission.
 S5 closes the temporal runtime surface when explicitly enabled: its `date(text)`
 replaces the deprecated upstream numeric `date`, and upstream `d()` / date methods
@@ -151,6 +152,17 @@ lists the full downstream delta.
 | `deterministic-maps` | off | Norn semantic patch S3: insertion-ordered `VariableMap` at every size (`indexmap`). Also on `zen-expression` and `zen-types`. |
 | `deterministic-temporal` | off | Norn S5: pure typed temporal parsing, comparisons and checked arithmetic. Forwarded by zen-tmpl too. |
 | `metering` | off | Norn semantic patch S4: deterministic operation budget (`zen_engine::meter::Meter`, `Decision::evaluate_metered`). Also on `zen-expression` (`Isolate::set_meter`). |
+| `bounded-strings` | off | Norn S7: bounded ASCII token runs, Unicode-scalar prefixes, and bounded string joins. Forwarded by zen-tmpl too. |
+
+### Norn S7 bounded strings
+
+The `bounded-strings` feature is default-off and adds three synchronous expression builtins:
+
+- `tokens(text, 'alnum', maxCount, maxLength)` returns the first `maxCount` maximal ASCII `[A-Za-z0-9]+` runs. Every other scalar is a separator, including `_`, `-`, and spaces; case is preserved. The `'alnum'` mode is checked at runtime. `maxCount` and `maxLength` must be integers in `0..=256`; either zero yields an empty array. `maxLength` is a byte cap (equivalent to ASCII characters), and a longer run is truncated rather than split into additional tokens. Non-ASCII scalars are separators. This builtin does not normalize or case-fold; callers should NFC-normalize first when normalization-independent results are required. For example, NFC `AéB` gives `["A", "B"]`, while NFD `Ae\u{301}B` gives `["Ae", "B"]`. The fixed `[A-Za-z0-9]+` pattern reuses the active regex backend; either backend gives the same token results, although CI exercises this builtin with `regex-lite` only. Arbitrary patterns are not exposed by this API.
+- `take(text, maxScalars)` returns a prefix ending after at most `maxScalars` Unicode scalar values. The cap must be an integer in `0..=16384`; zero returns the empty string. It preserves the input bytes and does not normalize text. The boundary is UTF-8-safe but is not a grapheme boundary: it can separate a base letter from a combining mark, split a ZWJ emoji sequence, or split a flag. A prefix of 16,384 four-byte scalars can contain 65,536 UTF-8 bytes; `join`'s separate 16,384-byte limit does not apply to `take`.
+- `join(strings, separator)` joins a string array in order and refuses output above 16,384 UTF-8 bytes; the limit is inclusive. An empty list returns `""`, and non-string elements fail at runtime. It validates and measures the complete input before allocating, then appends once into a capacity-sized buffer.
+
+The Norn profile tests run with `regex-lite` on native and wasm32. Metering charges shallow argument sizes before each builtin runs. `tokens` also charges 64 units for its fixed regex and one full additional input-byte allowance before scanning, even when the returned tokens are shorter; `take` charges `min(input bytes, 4 * maxScalars)` before copying. `join` adds twice the budget-bounded one-level list size—once to scan and once to copy the list strings—plus separator bytes times `n - 1`; measurement stops at the remaining budget. Metered counts and budget exhaustion are pinned across targets.
 
 The Norn pure profile is `zen-engine = { ..., default-features = false }`. Its
 regex backend is `regex-lite`, either by fallback or by setting `regex-lite`
@@ -200,6 +212,9 @@ tracing, precompilation or the target. Constants live in `zen_expression::meter:
 | `CallFunction` / `CallMethod` | + shallow size of the arguments (string bytes, array/object length, else 1) |
 | `flatten`, `merge`, `Flatten` opcode | + outer length + shallow size of every direct child (`cost::nested_size_capped`) instead of the shallow size (-4). The outer length is counted first, and the child scan stops once the total exceeds the remaining budget; the result is clamped to `remaining + 1` (-5) |
 | `matches`, `extract` | + 64 (regex compilation) on top of the argument sizes |
+| `tokens` | + 64 (fixed regex compilation) and one additional full input-byte allowance before scanning |
+| `take` | + `min(input bytes, 4 * maxScalars)` before output copying |
+| `join` | + twice the bounded one-level list size (scan and copy) + separator bytes × `(n - 1)`; measurement stops at the remaining budget |
 | `fuzzyMatch` | + deep size(subject) x size(pattern) |
 | `mergeDeep`, `Join` | + recursive size (`cost::deep_size_capped`); the walk stops once it exceeds the meter's remaining units, so measuring is itself bounded (-4) |
 | `Slice`, `In`, `Equal`, string `Add` | + size of the data they touch |
@@ -249,12 +264,13 @@ Default-feature upstream testing is retained on every OS.
    `cargo tree -e features --target wasm32-unknown-unknown -p zen-engine --no-default-features`
    must not mention `tokio` or `rquickjs`. Positive controls check that the default
    trees do, so the negative checks cannot pass vacuously.
-4. Semantic features on (`strict-errors`, `deterministic-maps`, `metering`): the
+4. Semantic features on (`strict-errors`, `deterministic-maps`, `metering`,
+   `bounded-strings`): the
    upstream suite plus Norn tests with default features, and the Norn tests in the pure
    profile. Upstream fixture tests that rely on the failing-cell fallback are ignored
    only under `strict-errors`.
 5. Norn profile on `wasm32-unknown-unknown`: `zen-engine` builds (release) with
-   `--no-default-features --features strict-errors,deterministic-maps,metering`, and that
+   `--no-default-features --features strict-errors,deterministic-maps,metering,deterministic-temporal,bounded-strings`, and that
    tree has no tokio, rquickjs or reqwest. `core/expression/tests/metering.rs` runs under
    `wasm-bindgen-test-runner` (CLI version read from `Cargo.lock`) and must hit the
    same pinned counts as the native run. zen-expression's `criterion` dev-dependency
@@ -286,17 +302,23 @@ Norn modifications are also MIT. Every Norn change is a separate commit on top o
 the upstream tag, so `git log zen-engine-v2.0.1..` lists the full downstream delta.
 
 
-## New-tag checklist (S5 candidate)
+## New-tag checklist (S7 candidate)
 
-Published as **`norn-v2.0.1-8`** (2026-10-06). Remaining step: qualify and bump the norn-platform profile (step 4).
+S5 deterministic temporal was qualified and released as **`norn-v2.0.1-8`** on
+2026-10-06. S7 bounded strings is proposed as **`norn-v2.0.1-11`**; its fork
+qualification and platform-profile qualification are pending.
 
-1. Merge the temporal fork PR into `norn/v2.0.1` only after Norn CI is green:
-   default upstream suite, pure profile, dependency trees, existing semantic
-   patch tests, native temporal fixtures and wasm32 temporal parity / engine build.
-2. Obtain the lead's independent review and link its ship-bar verdict from the PR.
-3. The lead creates an immutable annotated `norn-v2.0.1-8` on the reviewed merged
-   commit and updates the release table. This worker does not create a tag.
-4. Qualify the new semantic profile in norn-platform. Update its fork ledger,
-   pin file, Cargo tag/lock, checker signatures, cost model and positive temporal
-   relational conformance tests together, following the platform checklist.
-   No platform pin or platform source is changed in this fork PR.
+1. Merge the bounded-strings fork PR into `norn/v2.0.1` only after the required
+   Norn CI is green: default upstream suite, pure profile, dependency trees,
+   existing semantic patch tests, bounded-string native tests, wasm32 metering
+   parity, temporal parity, and the Norn-profile engine build.
+2. Obtain the lead's independent Sol review and link its ship-bar verdict from
+   the PR.
+3. After the reviewed merge, the lead creates the immutable annotated
+   `norn-v2.0.1-11` tag on that commit and updates the release table. This worker
+   does not create a tag.
+4. Only after the fork CI, review and immutable-tag gates pass, qualify the new
+   semantic profile in norn-platform. Update its fork ledger, pin file, Cargo
+   tag/lock, checker signatures, cost model and bounded-string conformance tests
+   together, following the platform checklist. No platform pin or platform
+   source is changed in this fork PR.

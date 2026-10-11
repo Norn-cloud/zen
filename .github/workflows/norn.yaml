@@ -55,6 +55,8 @@ jobs:
         run: cargo test -p zen-engine --no-default-features --features json-schema --lib --locked
       - name: expression integration tests with the pure regex backend (regex-lite)
         run: cargo test -p zen-expression --no-default-features --tests --locked
+      - name: bounded string builtins with the pure regex backend (S7)
+        run: cargo test -p zen-expression --no-default-features --features bounded-strings,regex-lite,metering --test bounded_strings --test metering --locked
       - name: assert reqwest / tokio / rquickjs are absent from the pure native tree
         run: |
           set -euo pipefail
@@ -70,13 +72,13 @@ jobs:
       - name: build for wasm32-unknown-unknown (no libclang required)
         run: cargo build -p zen-engine --no-default-features --target wasm32-unknown-unknown --release --locked
       - name: build the zen-expression Norn profile alone for wasm32-unknown-unknown (C7)
-        run: cargo build -p zen-expression --no-default-features --features regex-lite,deterministic-maps,metering --target wasm32-unknown-unknown --release --locked
+        run: cargo build -p zen-expression --no-default-features --features regex-lite,deterministic-maps,metering,bounded-strings --target wasm32-unknown-unknown --release --locked
       - name: assert getrandom is absent from the zen-expression Norn profile wasm tree (C7)
         run: |
           set -euo pipefail
           # Positive control: the default tree seeds ahash from getrandom.
           cargo tree -e normal --target wasm32-unknown-unknown -p zen-expression --locked | grep -qE '(^|[^A-Za-z0-9_-])getrandom v[0-9]'
-          if cargo tree -e normal --target wasm32-unknown-unknown -p zen-expression --no-default-features --features regex-lite,deterministic-maps,metering --locked | grep -E '(^|[^A-Za-z0-9_-])(getrandom|tokio|rquickjs|reqwest|regex) v[0-9]'; then
+          if cargo tree -e normal --target wasm32-unknown-unknown -p zen-expression --no-default-features --features regex-lite,deterministic-maps,metering,bounded-strings --locked | grep -E '(^|[^A-Za-z0-9_-])(getrandom|tokio|rquickjs|reqwest|regex) v[0-9]'; then
             echo "::error::getrandom, a runtime or the regex backend is present in the zen-expression Norn profile wasm32 tree"
             exit 1
           fi
@@ -91,7 +93,7 @@ jobs:
           fi
 
   semantic-features:
-    name: Norn semantic features on (strict-errors, deterministic-maps, metering)
+    name: Norn semantic features on (strict-errors, deterministic-maps, metering, bounded-strings)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -106,9 +108,9 @@ jobs:
       - name: pure profile plus the semantic patches
         run: |
           cargo test -p zen-engine --no-default-features --features "$NORN_SEMANTIC" --lib --test strict_errors --test metering --locked
-          cargo test -p zen-expression --no-default-features --features deterministic-maps,metering --test deterministic_maps --test metering --locked
+          cargo test -p zen-expression --no-default-features --features deterministic-maps,metering,bounded-strings,regex-lite --test deterministic_maps --test bounded_strings --test metering --locked
     env:
-      NORN_SEMANTIC: zen-engine/strict-errors,zen-engine/deterministic-maps,zen-engine/metering,zen-expression/deterministic-maps,zen-expression/metering
+      NORN_SEMANTIC: zen-engine/strict-errors,zen-engine/deterministic-maps,zen-engine/metering,zen-engine/bounded-strings,zen-expression/deterministic-maps,zen-expression/metering,zen-expression/bounded-strings,zen-tmpl/bounded-strings
 
   metering-wasm:
     name: Norn profile on wasm32-unknown-unknown (metering counts, engine build)
@@ -132,19 +134,19 @@ jobs:
       - name: metering tests on wasm32-unknown-unknown
         env:
           CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
-        run: cargo test -p zen-expression --no-default-features --features metering --target wasm32-unknown-unknown --test metering --locked
+        run: cargo test -p zen-expression --no-default-features --features metering,bounded-strings,regex-lite --target wasm32-unknown-unknown --test bounded_strings --test metering --locked
       - name: deterministic temporal parity on wasm32-unknown-unknown (S5)
         env:
           CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
         run: cargo test -p zen-expression --no-default-features --features deterministic-temporal,metering --target wasm32-unknown-unknown --test temporal --locked
-      # The Norn kernel profile: pure (no js/http/schema-resolvers) plus all three
-      # semantic patches, as the kernel will build it for Workers / Durable Objects.
+      # The Norn kernel profile: pure (no js/http/schema-resolvers) plus the
+      # semantic features enabled by the kernel for Workers / Durable Objects.
       - name: build zen-engine Norn profile for wasm32-unknown-unknown
-        run: cargo build -p zen-engine --no-default-features --features strict-errors,deterministic-maps,metering,deterministic-temporal --target wasm32-unknown-unknown --release --locked
+        run: cargo build -p zen-engine --no-default-features --features strict-errors,deterministic-maps,metering,deterministic-temporal,bounded-strings --target wasm32-unknown-unknown --release --locked
       - name: assert tokio / rquickjs / reqwest are absent from the Norn profile wasm tree
         run: |
           set -euo pipefail
-          if cargo tree -e normal --target wasm32-unknown-unknown -p zen-engine --no-default-features --features strict-errors,deterministic-maps,metering --locked | grep -E '(^|[^A-Za-z0-9_-])(tokio|rquickjs|reqwest) v[0-9]'; then
+          if cargo tree -e normal --target wasm32-unknown-unknown -p zen-engine --no-default-features --features strict-errors,deterministic-maps,metering,bounded-strings --locked | grep -E '(^|[^A-Za-z0-9_-])(tokio|rquickjs|reqwest) v[0-9]'; then
             echo "::error::runtime dependency in the Norn profile wasm32 tree"
             exit 1
           fi
@@ -153,7 +155,7 @@ jobs:
       - name: assert getrandom / jsonschema / swc / smartstring are absent from the Norn profile trees (C8, C9)
         run: |
           set -euo pipefail
-          profile=strict-errors,deterministic-maps,metering,regex-lite,deterministic-temporal
+          profile=strict-errors,deterministic-maps,metering,regex-lite,deterministic-temporal,bounded-strings
           has() { grep -qE "(^|[^A-Za-z0-9_-])($1) v[0-9]" <<<"$2"; }
           # Each tree is a checked assignment, so a cargo tree failure fails the step.
           with_schema="$(cargo tree -e normal --target wasm32-unknown-unknown -p zen-engine --no-default-features --features "${profile},json-schema" --locked)"

@@ -24,3 +24,5 @@ regex-deprecated = ["zen-expression/regex-deprecated"]
 arbitrary_precision = ["zen-expression/arbitrary_precision"]
 # Norn S5: deterministic temporal expression profile.
 deterministic-temporal = ["zen-expression/deterministic-temporal"]
+# Norn S7: bounded string tokenization, Unicode-scalar prefixes, and joins.
+bounded-strings = ["zen-expression/bounded-strings"]
