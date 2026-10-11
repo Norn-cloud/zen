@@ -83,7 +83,10 @@ fn string_and_regex_builtins_are_charged_by_size() {
 #[test]
 fn bounded_string_builtins_charge_scans_and_result_copying() {
     let short = cost_with("tokens(s, 'alnum', 256, 256)", json!({ "s": "a" }));
-    let long = cost_with("tokens(s, 'alnum', 256, 256)", json!({ "s": "a".repeat(40) }));
+    let long = cost_with(
+        "tokens(s, 'alnum', 256, 256)",
+        json!({ "s": "a".repeat(40) }),
+    );
     assert_eq!(long - short, 78);
 
     let short = cost_with("take(s, 1)", json!({ "s": "a" }));

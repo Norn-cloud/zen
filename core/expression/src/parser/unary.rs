@@ -385,9 +385,7 @@ impl From<&Node<'_>> for UnaryNodeBehaviour {
                     #[cfg(feature = "bounded-strings")]
                     InternalFunction::Tokens => CompareWithReference(In),
                     #[cfg(feature = "bounded-strings")]
-                    InternalFunction::Take | InternalFunction::Join => {
-                        CompareWithReference(Equal)
-                    }
+                    InternalFunction::Take | InternalFunction::Join => CompareWithReference(Equal),
                     InternalFunction::IsNumeric => AsBoolean,
                     InternalFunction::Keys => CompareWithReference(In),
                     InternalFunction::Values => CompareWithReference(In),

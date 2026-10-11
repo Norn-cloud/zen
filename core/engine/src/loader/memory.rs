@@ -17,7 +17,7 @@ impl MemoryLoader {
         K: Into<String>,
         D: Into<DecisionContent>,
     {
-        let mut mref = self.memory_refs.write().unwrap();
+        let mut mref = self.memory_refs.write().expect("memory loader lock poisoned");
         mref.insert(key.into(), Arc::new(content.into()));
     }
 
@@ -25,7 +25,7 @@ impl MemoryLoader {
     where
         K: AsRef<str>,
     {
-        let mref = self.memory_refs.read().unwrap();
+        let mref = self.memory_refs.read().expect("memory loader lock poisoned");
         mref.get(key.as_ref()).map(|r| r.clone())
     }
 
@@ -33,7 +33,7 @@ impl MemoryLoader {
     where
         K: AsRef<str>,
     {
-        let mut mref = self.memory_refs.write().unwrap();
+        let mut mref = self.memory_refs.write().expect("memory loader lock poisoned");
         mref.remove(key.as_ref()).is_some()
     }
 }
@@ -50,7 +50,7 @@ impl DecisionLoader for MemoryLoader {
     }
 
     fn keys(&self) -> Option<Vec<Arc<str>>> {
-        let mref = self.memory_refs.read().unwrap();
+        let mref = self.memory_refs.read().expect("memory loader lock poisoned");
         Some(mref.keys().map(|k| Arc::from(k.as_str())).collect())
     }
 
