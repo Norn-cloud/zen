@@ -20,7 +20,7 @@ jobs:
   # The build jobs skip on release events for other components (release-please fires
   # one `release` event per component; only `python-v*` should build/publish here).
   wheels:
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ startsWith(matrix.os, 'ubuntu-') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'boat-zen' || matrix.os }}
     strategy:
       fail-fast: false
       matrix:
@@ -70,7 +70,7 @@ jobs:
           path: dist
 
   sdist:
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && 'ubuntu-latest' || 'boat-zen' }}
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-python@v4

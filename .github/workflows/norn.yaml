@@ -25,7 +25,7 @@ concurrency:
 jobs:
   native-default:
     name: upstream tests (native, default features)
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && 'ubuntu-latest' || 'boat-zen' }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
@@ -39,7 +39,7 @@ jobs:
 
   pure-profile:
     name: pure profile (no-default-features; native + wasm32-unknown-unknown)
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && 'ubuntu-latest' || 'boat-zen' }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
@@ -94,7 +94,7 @@ jobs:
 
   semantic-features:
     name: Norn semantic features on (strict-errors, deterministic-maps, metering, bounded-strings)
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && 'ubuntu-latest' || 'boat-zen' }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
@@ -114,7 +114,7 @@ jobs:
 
   metering-wasm:
     name: Norn profile on wasm32-unknown-unknown (metering counts, engine build)
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && 'ubuntu-latest' || 'boat-zen' }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
@@ -182,7 +182,7 @@ jobs:
 
   temporal-native:
     name: deterministic temporal profile (native parity, S5)
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && 'ubuntu-latest' || 'boat-zen' }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
