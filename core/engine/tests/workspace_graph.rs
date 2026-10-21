@@ -1474,6 +1474,8 @@ fn typed_function_graph() -> Value {
     )
 }
 
+// Parsing declared function types requires ts-types, independently of JS execution.
+#[cfg(feature = "ts-types")]
 #[test]
 fn resolver_types_function_nodes_and_downstream_is_checked() {
     let mut ws = Workspace::new();
@@ -1505,6 +1507,8 @@ fn resolver_types_function_nodes_and_downstream_is_checked() {
     assert!(ws.unchecked_nodes("g").is_empty());
 }
 
+// Parsing declared function types requires ts-types, independently of JS execution.
+#[cfg(feature = "ts-types")]
 #[test]
 fn resolver_any_is_an_error() {
     let mut ws = Workspace::new();
@@ -1557,6 +1561,8 @@ fn resolver_is_cached_per_source_and_input() {
     assert_eq!(calls.get(), 1);
 }
 
+// Parsing declared function types requires ts-types, independently of JS execution.
+#[cfg(feature = "ts-types")]
 #[test]
 fn request_and_push_flow_without_native_resolver() {
     let mut ws = Workspace::new();
@@ -1582,6 +1588,48 @@ fn request_and_push_flow_without_native_resolver() {
     let outputs = ws.outputs(&ScopeRequest::for_policy("g"));
     assert!(outputs.iter().any(|o| o.path.as_ref() == "grand"));
     assert!(ws.function_resolution_requests().is_empty());
+}
+
+#[cfg(not(feature = "ts-types"))]
+#[test]
+fn declared_function_types_stay_unresolved_without_ts_types() {
+    // Both resolver entry points accept declarations, but cannot parse them in C9's
+    // pure profile. They must keep the function and its downstream nodes unchecked.
+    for pushed in [false, true] {
+        let mut ws = Workspace::new();
+        if !pushed {
+            ws.set_function_resolver(|_, _| Some("Promise<{ total: number }>".to_string()));
+        }
+        ws.set_document("g", document(typed_function_graph()));
+        if pushed {
+            let requests = ws.function_resolution_requests();
+            assert_eq!(requests.len(), 1, "{requests:?}");
+            ws.set_function_type(
+                &requests[0].source,
+                &requests[0].input,
+                Some("Promise<{ total: number }>"),
+            );
+        }
+
+        let diagnostics = ws.diagnostics("g");
+        assert!(
+            diagnostics.iter().any(|d| d.severity == Severity::Warning
+                && d.code == DiagnosticCode::UnresolvedFunctionType
+                && d.location.block_id.as_deref() == Some("fn")),
+            "pushed={pushed}: {diagnostics:?}"
+        );
+        assert!(
+            !diagnostics.iter().any(|d| d.severity == Severity::Error),
+            "pushed={pushed}: {diagnostics:?}"
+        );
+        let unchecked = ws.unchecked_nodes("g");
+        for id in ["fn", "after", "out"] {
+            assert!(
+                unchecked.iter().any(|node| node.as_ref() == id),
+                "pushed={pushed}: {unchecked:?}"
+            );
+        }
+    }
 }
 
 #[test]

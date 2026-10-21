@@ -25,6 +25,7 @@ async fn engine_memory_loader() {
     let table = engine
         .evaluate("table", json!({ "input": 12 }).into())
         .await;
+    #[cfg(feature = "js")]
     let function = engine
         .evaluate("function", json!({ "input": 12 }).into())
         .await;
@@ -33,6 +34,7 @@ async fn engine_memory_loader() {
     let not_found = engine.evaluate("function", json!({}).into()).await;
 
     assert_eq!(table.unwrap().result, json!({"output": 10}).into());
+    #[cfg(feature = "js")]
     assert_eq!(function.unwrap().result, json!({"output": 24}).into());
     assert_eq!(not_found.unwrap_err().to_string(), "Loader error");
 }
@@ -62,12 +64,14 @@ async fn engine_filesystem_loader() {
     let table = engine
         .evaluate("table.json", json!({ "input": 12 }).into())
         .await;
+    #[cfg(feature = "js")]
     let function = engine
         .evaluate("function.json", json!({ "input": 12 }).into())
         .await;
     let not_found = engine.evaluate("invalid_file", json!({}).into()).await;
 
     assert_eq!(table.unwrap().result, json!({"output": 10}).into());
+    #[cfg(feature = "js")]
     assert_eq!(function.unwrap().result, json!({"output": 24}).into());
     assert_eq!(not_found.unwrap_err().to_string(), "Loader error");
 }
@@ -86,12 +90,14 @@ async fn engine_closure_loader() {
     let table = engine
         .evaluate("table", json!({ "input": 12 }).into())
         .await;
+    #[cfg(feature = "js")]
     let function = engine
         .evaluate("function", json!({ "input": 12 }).into())
         .await;
     let not_found = engine.evaluate("invalid_file", json!({}).into()).await;
 
     assert_eq!(table.unwrap().result, json!({"output": 10}).into());
+    #[cfg(feature = "js")]
     assert_eq!(function.unwrap().result, json!({"output": 24}).into());
     assert_eq!(not_found.unwrap_err().to_string(), "Loader error");
 }
@@ -130,17 +136,20 @@ fn engine_create_decision() {
 async fn engine_errors() {
     let engine = DecisionEngine::default().with_loader(Arc::new(create_fs_loader()));
 
-    let infinite_fn = engine
-        .evaluate("infinite-function.json", json!({}).into())
-        .await;
-    match infinite_fn.unwrap_err().deref() {
-        EvaluationError::NodeError {
-            node_id, source, ..
-        } => {
-            assert_eq!(node_id.deref(), "e0fd96d0-44dc-4f0e-b825-06e56b442d78");
-            assert!(source.to_string().contains("interrupted"));
+    #[cfg(feature = "js")]
+    {
+        let infinite_fn = engine
+            .evaluate("infinite-function.json", json!({}).into())
+            .await;
+        match infinite_fn.unwrap_err().deref() {
+            EvaluationError::NodeError {
+                node_id, source, ..
+            } => {
+                assert_eq!(node_id.deref(), "e0fd96d0-44dc-4f0e-b825-06e56b442d78");
+                assert!(source.to_string().contains("interrupted"));
+            }
+            _ => assert!(false, "Wrong error type"),
         }
-        _ => assert!(false, "Wrong error type"),
     }
 
     let recursive = engine
@@ -181,63 +190,6 @@ fn engine_with_trace() {
 }
 
 #[tokio::test]
-#[cfg_attr(miri, ignore)]
-async fn engine_function_imports() {
-    let function_content = load_test_data("function.json");
-
-    let imports_js_path = Path::new("js").join("imports.js");
-    let mut replace_buffer = load_raw_test_data(imports_js_path.to_str().unwrap());
-    let mut replace_data = String::new();
-    replace_buffer.read_to_string(&mut replace_data).unwrap();
-
-    let new_nodes = function_content
-        .nodes
-        .into_iter()
-        .map(|node| match &node.kind {
-            DecisionNodeKind::FunctionNode { .. } => {
-                let new_kind = DecisionNodeKind::FunctionNode {
-                    content: FunctionNodeContent::Version1(Arc::from(replace_data.as_str())),
-                };
-
-                Arc::new(DecisionNode {
-                    id: node.id.clone(),
-                    name: node.name.clone(),
-                    kind: new_kind,
-                })
-            }
-            _ => node,
-        })
-        .collect::<Vec<_>>();
-
-    let function_content = {
-        let mut content = GraphContent::default();
-        content.edges = function_content.edges;
-        content.nodes = new_nodes;
-        content
-    };
-    let decision = DecisionEngine::default()
-        .create_decision(Arc::new(function_content.into()))
-        .unwrap();
-    let response = decision.evaluate(json!({}).into()).await.unwrap();
-
-    #[derive(Deserialize, Debug)]
-    #[serde(rename_all = "camelCase")]
-    struct GraphResult {
-        bigjs_tests: Vec<bool>,
-        bigjs_valid: bool,
-        dayjs_valid: bool,
-        moment_valid: bool,
-    }
-
-    let result = serde_json::from_value::<GraphResult>(response.result.to_value()).unwrap();
-
-    assert!(result.bigjs_tests.iter().all(|v| *v));
-    assert!(result.bigjs_valid);
-    assert!(result.dayjs_valid);
-    assert!(result.moment_valid);
-}
-
-#[tokio::test]
 async fn engine_switch_node() {
     let engine = DecisionEngine::default().with_loader(Arc::new(create_fs_loader()));
 
@@ -253,6 +205,8 @@ async fn engine_switch_node() {
 #[cfg_attr(miri, ignore)]
 // Norn: some upstream fixtures rely on failing-cell fallback, which `strict-errors` removes.
 #[cfg_attr(feature = "strict-errors", ignore = "upstream fallback semantics")]
+// The complete upstream corpus includes both node schemas and JS functions.
+#[cfg(all(feature = "json-schema", feature = "js"))]
 async fn engine_graph_tests() {
     mock_datetime();
 
@@ -323,6 +277,8 @@ fn mock_datetime() {
 #[cfg_attr(miri, ignore)]
 // Norn: some upstream fixtures rely on failing-cell fallback, which `strict-errors` removes.
 #[cfg_attr(feature = "strict-errors", ignore = "upstream fallback semantics")]
+// The complete upstream corpus includes both node schemas and JS functions.
+#[cfg(all(feature = "json-schema", feature = "js"))]
 async fn engine_snapshot_tests() {
     mock_datetime();
 
@@ -405,36 +361,8 @@ async fn engine_snapshot_tests() {
 }
 
 #[tokio::test]
-#[cfg_attr(miri, ignore)]
-async fn engine_function_v2() {
-    let engine = DecisionEngine::default().with_loader(Arc::new(create_fs_loader()));
-
-    for _ in 0..1_000 {
-        let function_opt_r = engine
-            .evaluate_with_opts(
-                "function-v2.json",
-                json!({ "input": 12 }).into(),
-                EvaluationOptions {
-                    trace: true,
-                    ..Default::default()
-                },
-            )
-            .await;
-
-        assert!(function_opt_r.is_ok(), "function v2 has errored");
-
-        let function_opt = function_opt_r.unwrap();
-        let trace = function_opt.trace.unwrap().into_graph().unwrap();
-        assert_eq!(trace.len(), 3); // trace for each node
-
-        assert_eq!(
-            function_opt.result,
-            json!({ "hello": "world", "multiplied": 24 }).into()
-        )
-    }
-}
-
-#[tokio::test]
+// These input/output fixtures declare schemas but contain no function nodes.
+#[cfg(feature = "json-schema")]
 async fn test_validation() {
     let engine = DecisionEngine::default().with_loader(Arc::new(create_fs_loader()));
 
@@ -478,27 +406,6 @@ async fn test_validation() {
         )
         .await
         .is_err());
-}
-
-#[tokio::test]
-#[cfg_attr(miri, ignore)]
-async fn test_nodes_reference() {
-    let engine = DecisionEngine::default().with_loader(Arc::new(create_fs_loader()));
-
-    let evaluation = engine
-        .evaluate("$nodes-parent.json", json!({ "hello": "world" }).into())
-        .await;
-
-    assert!(evaluation.is_ok());
-    assert_eq!(
-        evaluation.unwrap().result.to_value(),
-        json!({
-            "expressionParentNodes": { "request": { "hello": "world" } },
-            "expressionRequest": { "hello": "world" },
-            "functionParentNodes": { "request": { "hello": "world" } },
-            "functionRequest": { "hello": "world" },
-        })
-    );
 }
 
 #[tokio::test]
@@ -584,5 +491,118 @@ async fn decision_table_index_matches_linear_semantics() {
                 "hit_policy={hit_policy} probe={probe}"
             );
         }
+    }
+}
+
+#[cfg(feature = "js")]
+mod function_nodes {
+    use super::*;
+
+    #[tokio::test]
+    #[cfg_attr(miri, ignore)]
+    async fn engine_function_imports() {
+        let function_content = load_test_data("function.json");
+
+        let imports_js_path = Path::new("js").join("imports.js");
+        let mut replace_buffer = load_raw_test_data(imports_js_path.to_str().unwrap());
+        let mut replace_data = String::new();
+        replace_buffer.read_to_string(&mut replace_data).unwrap();
+
+        let new_nodes = function_content
+            .nodes
+            .into_iter()
+            .map(|node| match &node.kind {
+                DecisionNodeKind::FunctionNode { .. } => {
+                    let new_kind = DecisionNodeKind::FunctionNode {
+                        content: FunctionNodeContent::Version1(Arc::from(replace_data.as_str())),
+                    };
+
+                    Arc::new(DecisionNode {
+                        id: node.id.clone(),
+                        name: node.name.clone(),
+                        kind: new_kind,
+                    })
+                }
+                _ => node,
+            })
+            .collect::<Vec<_>>();
+
+        let function_content = {
+            let mut content = GraphContent::default();
+            content.edges = function_content.edges;
+            content.nodes = new_nodes;
+            content
+        };
+        let decision = DecisionEngine::default()
+            .create_decision(Arc::new(function_content.into()))
+            .unwrap();
+        let response = decision.evaluate(json!({}).into()).await.unwrap();
+
+        #[derive(Deserialize, Debug)]
+        #[serde(rename_all = "camelCase")]
+        struct GraphResult {
+            bigjs_tests: Vec<bool>,
+            bigjs_valid: bool,
+            dayjs_valid: bool,
+            moment_valid: bool,
+        }
+
+        let result = serde_json::from_value::<GraphResult>(response.result.to_value()).unwrap();
+
+        assert!(result.bigjs_tests.iter().all(|v| *v));
+        assert!(result.bigjs_valid);
+        assert!(result.dayjs_valid);
+        assert!(result.moment_valid);
+    }
+
+    #[tokio::test]
+    #[cfg_attr(miri, ignore)]
+    async fn engine_function_v2() {
+        let engine = DecisionEngine::default().with_loader(Arc::new(create_fs_loader()));
+
+        for _ in 0..1_000 {
+            let function_opt_r = engine
+                .evaluate_with_opts(
+                    "function-v2.json",
+                    json!({ "input": 12 }).into(),
+                    EvaluationOptions {
+                        trace: true,
+                        ..Default::default()
+                    },
+                )
+                .await;
+
+            assert!(function_opt_r.is_ok(), "function v2 has errored");
+
+            let function_opt = function_opt_r.unwrap();
+            let trace = function_opt.trace.unwrap().into_graph().unwrap();
+            assert_eq!(trace.len(), 3); // trace for each node
+
+            assert_eq!(
+                function_opt.result,
+                json!({ "hello": "world", "multiplied": 24 }).into()
+            )
+        }
+    }
+
+    #[tokio::test]
+    #[cfg_attr(miri, ignore)]
+    async fn test_nodes_reference() {
+        let engine = DecisionEngine::default().with_loader(Arc::new(create_fs_loader()));
+
+        let evaluation = engine
+            .evaluate("$nodes-parent.json", json!({ "hello": "world" }).into())
+            .await;
+
+        assert!(evaluation.is_ok());
+        assert_eq!(
+            evaluation.unwrap().result.to_value(),
+            json!({
+                "expressionParentNodes": { "request": { "hello": "world" } },
+                "expressionRequest": { "hello": "world" },
+                "functionParentNodes": { "request": { "hello": "world" } },
+                "functionRequest": { "hello": "world" },
+            })
+        );
     }
 }

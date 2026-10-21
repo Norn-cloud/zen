@@ -93,62 +93,67 @@ fn decision_validation() {
     ));
 }
 
-#[tokio::test]
-#[cfg_attr(miri, ignore)]
-async fn typescript_function_node_is_stripped_and_evaluated() {
-    let content = serde_json::from_value(json!({
-        "nodes": [
-            { "id": "in", "name": "in", "type": "inputNode", "content": {} },
-            {
-                "id": "fn", "name": "fn", "type": "functionNode",
-                "content": {
-                    "source": "interface Input { age: number }\nexport const handler = async (input: Input): Promise<{ total: number }> => {\n  return { total: input.age * 2 };\n};"
-                }
-            },
-            { "id": "out", "name": "out", "type": "outputNode", "content": {} }
-        ],
-        "edges": [
-            { "id": "e1", "sourceId": "in", "targetId": "fn" },
-            { "id": "e2", "sourceId": "fn", "targetId": "out" }
-        ]
-    }))
-    .unwrap();
-    let decision = Decision::from(Arc::new(content));
+#[cfg(feature = "js")]
+mod function_nodes {
+    use super::*;
 
-    let result = decision
-        .evaluate(json!({ "age": 21 }).into())
-        .await
+    #[tokio::test]
+    #[cfg_attr(miri, ignore)]
+    async fn typescript_function_node_is_stripped_and_evaluated() {
+        let content = serde_json::from_value(json!({
+            "nodes": [
+                { "id": "in", "name": "in", "type": "inputNode", "content": {} },
+                {
+                    "id": "fn", "name": "fn", "type": "functionNode",
+                    "content": {
+                        "source": "interface Input { age: number }\nexport const handler = async (input: Input): Promise<{ total: number }> => {\n  return { total: input.age * 2 };\n};"
+                    }
+                },
+                { "id": "out", "name": "out", "type": "outputNode", "content": {} }
+            ],
+            "edges": [
+                { "id": "e1", "sourceId": "in", "targetId": "fn" },
+                { "id": "e2", "sourceId": "fn", "targetId": "out" }
+            ]
+        }))
         .unwrap();
-    assert_eq!(result.result, json!({ "total": 42 }).into());
-}
+        let decision = Decision::from(Arc::new(content));
 
-#[tokio::test]
-#[cfg_attr(miri, ignore)]
-async fn typescript_enum_function_node_is_transformed_and_evaluated() {
-    let content = serde_json::from_value(json!({
-        "nodes": [
-            { "id": "in", "name": "in", "type": "inputNode", "content": {} },
-            {
-                "id": "fn", "name": "fn", "type": "functionNode",
-                "content": {
-                    "source": "enum Tier { Gold = 'gold', Basic = 'basic' }\nexport const handler = async (input: { vip: boolean }) => ({ tier: input.vip ? Tier.Gold : Tier.Basic });"
-                }
-            },
-            { "id": "out", "name": "out", "type": "outputNode", "content": {} }
-        ],
-        "edges": [
-            { "id": "e1", "sourceId": "in", "targetId": "fn" },
-            { "id": "e2", "sourceId": "fn", "targetId": "out" }
-        ]
-    }))
-    .unwrap();
-    let decision = Decision::from(Arc::new(content));
+        let result = decision
+            .evaluate(json!({ "age": 21 }).into())
+            .await
+            .unwrap();
+        assert_eq!(result.result, json!({ "total": 42 }).into());
+    }
 
-    let result = decision
-        .evaluate(json!({ "vip": true }).into())
-        .await
+    #[tokio::test]
+    #[cfg_attr(miri, ignore)]
+    async fn typescript_enum_function_node_is_transformed_and_evaluated() {
+        let content = serde_json::from_value(json!({
+            "nodes": [
+                { "id": "in", "name": "in", "type": "inputNode", "content": {} },
+                {
+                    "id": "fn", "name": "fn", "type": "functionNode",
+                    "content": {
+                        "source": "enum Tier { Gold = 'gold', Basic = 'basic' }\nexport const handler = async (input: { vip: boolean }) => ({ tier: input.vip ? Tier.Gold : Tier.Basic });"
+                    }
+                },
+                { "id": "out", "name": "out", "type": "outputNode", "content": {} }
+            ],
+            "edges": [
+                { "id": "e1", "sourceId": "in", "targetId": "fn" },
+                { "id": "e2", "sourceId": "fn", "targetId": "out" }
+            ]
+        }))
         .unwrap();
-    assert_eq!(result.result, json!({ "tier": "gold" }).into());
+        let decision = Decision::from(Arc::new(content));
+
+        let result = decision
+            .evaluate(json!({ "vip": true }).into())
+            .await
+            .unwrap();
+        assert_eq!(result.result, json!({ "tier": "gold" }).into());
+    }
 }
 
 #[tokio::test]

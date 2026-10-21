@@ -51,11 +51,15 @@ impl LoaderConfig {
         let loader = MemoryLoader::default();
         for index in 0..archive.len() {
             let mut entry = archive.by_index(index)?;
-            if !entry.is_file() || !entry.name().ends_with(".json") {
+            if !entry.is_file() {
+                continue;
+            }
+            let name = entry.name()?;
+            if !name.ends_with(".json") {
                 continue;
             }
 
-            let key = entry.name().to_string();
+            let key = name.into_owned();
             let mut buffer = Vec::with_capacity(entry.size() as usize);
             entry.read_to_end(&mut buffer)?;
             let content: DecisionContent = serde_json::from_slice(&buffer)?;
@@ -97,6 +101,44 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn zip_config_decodes_non_utf8_filenames() {
+        use std::io::Write;
+
+        let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+        writer.start_file("caf_.json", options).unwrap();
+        writer.write_all(GRAPH_JSON.as_bytes()).unwrap();
+        let mut bytes = writer.finish().unwrap().into_inner();
+
+        // ZipWriter accepts UTF-8 names. Replace the ASCII placeholder in both
+        // headers with CP437's é (invalid UTF-8), keeping lengths and data intact.
+        let mut replaced = 0;
+        for offset in 0..=bytes.len() - b"caf_.json".len() {
+            if &bytes[offset..offset + b"caf_.json".len()] == b"caf_.json" {
+                bytes[offset + 3] = 0x82;
+                replaced += 1;
+            }
+        }
+        assert_eq!(replaced, 2, "local and central filenames must match");
+
+        // Establish that this is a readable archive with a non-UTF-8 name,
+        // rather than a corrupt archive that fails before filename decoding.
+        {
+            let mut archive = zip::ZipArchive::new(std::io::Cursor::new(&bytes)).unwrap();
+            let entry = archive.by_index(0).unwrap();
+            assert_eq!(entry.name_raw(), b"caf\x82.json");
+            assert!(std::str::from_utf8(entry.name_raw()).is_err());
+            assert_eq!(entry.name().unwrap(), "café.json");
+        }
+
+        let loader = LoaderConfig::Zip { bytes }.into_loader().unwrap();
+        assert!(loader.load("café.json").await.is_ok());
+        assert!(loader.load("caf_.json").await.is_err());
+        assert!(loader.load("caf�.json").await.is_err());
+    }
+
+    #[tokio::test]
     async fn zip_config_decompresses_and_serves_decisions() {
         use std::io::Write;
 
@@ -106,6 +148,11 @@ mod tests {
             let options = zip::write::SimpleFileOptions::default()
                 .compression_method(zip::CompressionMethod::Deflated);
             writer.start_file("graph.json", options).unwrap();
+            writer.write_all(GRAPH_JSON.as_bytes()).unwrap();
+            writer.add_directory("nested.json/", options).unwrap();
+            writer.start_file("notes.txt", options).unwrap();
+            writer.write_all(b"not a decision").unwrap();
+            writer.start_file("nested/café.json", options).unwrap();
             writer.write_all(GRAPH_JSON.as_bytes()).unwrap();
             writer.finish().unwrap();
         }
@@ -117,6 +164,9 @@ mod tests {
         .unwrap();
 
         assert!(loader.load("graph.json").await.is_ok());
+        assert!(loader.load("nested/café.json").await.is_ok());
+        assert!(loader.load("nested.json/").await.is_err());
+        assert!(loader.load("notes.txt").await.is_err());
         assert!(loader.load("missing.json").await.is_err());
     }
 }
