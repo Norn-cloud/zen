@@ -381,6 +381,8 @@ fn input_schema_unknown_dictionary_is_diagnosed() {
     assert!(unknown, "{:?}", ws.diagnostics("g"));
 }
 
+// Runtime dictionary validation requires node-schema support (C8).
+#[cfg(feature = "json-schema")]
 #[tokio::test]
 async fn runtime_validates_dictionary_membership() {
     use zen_engine::loader::MemoryLoader;
@@ -421,6 +423,8 @@ async fn runtime_validates_dictionary_membership() {
     );
 }
 
+// Runtime dictionary validation requires node-schema support (C8).
+#[cfg(feature = "json-schema")]
 #[tokio::test]
 async fn runtime_errors_on_unknown_schema_dictionary() {
     use zen_engine::loader::MemoryLoader;
