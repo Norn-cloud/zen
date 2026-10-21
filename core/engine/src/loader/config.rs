@@ -51,11 +51,15 @@ impl LoaderConfig {
         let loader = MemoryLoader::default();
         for index in 0..archive.len() {
             let mut entry = archive.by_index(index)?;
-            if !entry.is_file() || !entry.name().ends_with(".json") {
+            if !entry.is_file() {
+                continue;
+            }
+            let name = entry.name()?;
+            if !name.ends_with(".json") {
                 continue;
             }
 
-            let key = entry.name().to_string();
+            let key = name.into_owned();
             let mut buffer = Vec::with_capacity(entry.size() as usize);
             entry.read_to_end(&mut buffer)?;
             let content: DecisionContent = serde_json::from_slice(&buffer)?;
@@ -107,6 +111,11 @@ mod tests {
                 .compression_method(zip::CompressionMethod::Deflated);
             writer.start_file("graph.json", options).unwrap();
             writer.write_all(GRAPH_JSON.as_bytes()).unwrap();
+            writer.add_directory("nested.json/", options).unwrap();
+            writer.start_file("notes.txt", options).unwrap();
+            writer.write_all(b"not a decision").unwrap();
+            writer.start_file("nested/café.json", options).unwrap();
+            writer.write_all(GRAPH_JSON.as_bytes()).unwrap();
             writer.finish().unwrap();
         }
 
@@ -117,6 +126,9 @@ mod tests {
         .unwrap();
 
         assert!(loader.load("graph.json").await.is_ok());
+        assert!(loader.load("nested/café.json").await.is_ok());
+        assert!(loader.load("nested.json/").await.is_err());
+        assert!(loader.load("notes.txt").await.is_err());
         assert!(loader.load("missing.json").await.is_err());
     }
 }
