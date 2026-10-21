@@ -205,6 +205,8 @@ async fn engine_switch_node() {
 #[cfg_attr(miri, ignore)]
 // Norn: some upstream fixtures rely on failing-cell fallback, which `strict-errors` removes.
 #[cfg_attr(feature = "strict-errors", ignore = "upstream fallback semantics")]
+// The complete upstream corpus includes both node schemas and JS functions.
+#[cfg(all(feature = "json-schema", feature = "js"))]
 async fn engine_graph_tests() {
     mock_datetime();
 
@@ -275,6 +277,8 @@ fn mock_datetime() {
 #[cfg_attr(miri, ignore)]
 // Norn: some upstream fixtures rely on failing-cell fallback, which `strict-errors` removes.
 #[cfg_attr(feature = "strict-errors", ignore = "upstream fallback semantics")]
+// The complete upstream corpus includes both node schemas and JS functions.
+#[cfg(all(feature = "json-schema", feature = "js"))]
 async fn engine_snapshot_tests() {
     mock_datetime();
 
@@ -357,6 +361,8 @@ async fn engine_snapshot_tests() {
 }
 
 #[tokio::test]
+// These input/output fixtures declare schemas but contain no function nodes.
+#[cfg(feature = "json-schema")]
 async fn test_validation() {
     let engine = DecisionEngine::default().with_loader(Arc::new(create_fs_loader()));
 
